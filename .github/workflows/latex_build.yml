@@ -28,5 +28,5 @@ jobs:
       - name: Upload PDF
         uses: actions/upload-artifact@v2
         with:
-          name: your-document
+          name: main.pdf
           path: report/main.pdf
