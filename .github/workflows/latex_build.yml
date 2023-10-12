@@ -29,10 +29,10 @@ jobs:
       - name: Move PDF to report folder
         run: |
           mv main.pdf report/
-        continue-on-error: true
+        continue-on-error: false
 
       - name: Upload PDF
         uses: actions/upload-artifact@v2
         with:
           name: main.pdf
-          path: report/main.pdf
+          path: report/
