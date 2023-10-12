@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Setup LaTeX
         run: |
@@ -29,10 +29,10 @@ jobs:
       - name: Move PDF to report folder
         run: |
           mv main.pdf report/
-        continue-on-error: false
+        continue-on-error: true
 
       - name: Upload PDF
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: main.pdf
-          path: report/
+          path: report/main.pdf
