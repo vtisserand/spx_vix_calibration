@@ -5,3 +5,5 @@ __pycache__/
 *.ipynb
 *.pyc
 
+report/output/
+.github/
