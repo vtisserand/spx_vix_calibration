@@ -9,7 +9,7 @@ class BaseModel(ABC):
         self.drift = drift
 
     @abstractmethod
-    def generate_trajectory(self, num_steps, time_step):
+    def generate_vol_trajectory(self, num_steps, time_step):
         pass
 
 
