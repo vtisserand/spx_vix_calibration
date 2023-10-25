@@ -26,4 +26,6 @@ class GeometricBrownianMotion(BaseModel):
         return prices
 
     def _next_price(self, current_price, time_step, dW):
-        return current_price * np.exp((self.drift - 0.5 * self.volatility**2) * time_step + self.volatility * dW)
+        return current_price * np.exp(
+            (self.drift - 0.5 * self.volatility**2) * time_step + self.volatility * dW
+        )
