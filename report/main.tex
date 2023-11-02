@@ -17,6 +17,15 @@
 \usepackage{sidecap}
 \usepackage{tikz}
 
+% Tables stuff
+\usepackage{pifont}
+\usepackage{xcolor}
+\newcommand{\cmark}{\textcolor{green!80!black}{\ding{51}}}
+\newcommand{\xmark}{\textcolor{red}{\ding{55}}}
+
+\DeclareMathOperator{\e}{e}
+\newcommand{\convo}{\mathbin{\star}}
+
 \title{SPX-VIX joint calibration: extending the quintic OU model}
 \author{}
 \date{October 2023}
@@ -25,6 +34,12 @@
 
 \maketitle
 
-\section{This is a fuckinggggg test}
+\input{parts/sota.tex}
+
+
+
+\addcontentsline{toc}{section}{References}
+\bibliographystyle{plain}
+\bibliography{biblio.bib}
 
 \end{document}
