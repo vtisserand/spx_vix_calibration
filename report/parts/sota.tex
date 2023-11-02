@@ -1,0 +1,67 @@
+\section{Bibliography review}
+
+A quintic Ornstein-Uhlenbeck dynamic that jointly calibrates SPX and VIX smiles is introduced in \cite{jaber2022quintic, jaber2022joint}.\\
+
+We wish to extend this model to capture more stylized facts (long memory, roughness, Zumbach effect).\newline
+Comparison to other models (path-dependency of volatility \cite{guyon2023volatility}, rough volatility \cite{gatheral2020quadratic}).
+
+\subsection{Stylized facts}
+
+The equities spot and options market exhibit a lot of empirical properties. A good model should be able to capture and reproduce such stylized facts.\newline
+Some statistical evidence highlighted in \cite{cont2001empirical} and \cite{LeBaron2001} gives a first set of stylized facts on asset returns:
+
+\begin{itemize}
+    \item Absence of autocorrelation,
+    \item Heavy tails: The tails of the return distributions exhibit power-law-like scaling behaviour. The exponents are consistent with the existence of variances, but the existence of higher moments is not guaranteed.
+    \item Multi-timescale volatility clustering,
+    \item Gain/loss asymettry,
+    \item Leverage effect, 
+    \item etc.
+    \item Gaussianity: At relatively high frequencies (less than 6 months) stock
+    returns do not follow a Gaussian distribution. When looking at lower frequencies they appear closer to Gaussian, but the convergence is very slow.
+\end{itemize}
+
+On top of that, some other important effects were later discovered:
+
+\paragraph{Volatility persistence} analyzed in \cite{comte1998long} that introduces a mean-reversion dynamic for stochastic volatility to address the long-memory behaviour.
+
+\paragraph{Rough volatility}
+
+\paragraph{Zumbach effect} fkjzenfgjaz\\
+
+\paragraph{VIX pricing} 
+
+
+
+\subsection{Models}
+
+\paragraph{Guyon}
+
+\paragraph{Bouchaud}
+
+
+
+\paragraph{Gatheral}
+
+\paragraph{Abi Jaber}
+
+
+\begin{center}
+\begin{tabular}{|c|c|c|c|c|c|}
+    \cline{2-6}
+    \multicolumn{1}{c|}{} & Black-Scholes & Heston & Gatheral & Quintic OU & LeBaron \\
+    \hline
+    Heavy tails & \xmark & \cmark & \cmark & \cmark & \cmark \\
+    \hline
+    Leverage effect & \xmark & \xmark & \cmark & \xmark & \xmark \\
+    \hline
+    Zumbach effect & \xmark & \cmark & \xmark & \cmark & \xmark \\
+    \hline
+    No Martingality & \xmark & \xmark & \xmark & \xmark & \xmark \\
+    \hline
+    Volatility persistence & \xmark & \xmark & \xmark & \xmark & \xmark \\
+\end{tabular}
+\end{center}
+
+The hunt for a perfect statistical model for financial markets is still going on.
+
