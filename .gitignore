@@ -8,3 +8,6 @@ __pycache__/
 
 report/output/
 .github/
+
+# Ignore data
+data/
