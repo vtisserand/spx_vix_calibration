@@ -121,3 +121,44 @@ class ZumbachEffect(StylizedFact):
         correlation = np.corrcoef(past_volatility, future_returns)[0, 1]
 
         return correlation > self.threshold
+
+
+def stylized_fact_pipeline(model_name, model_params, num_steps, time_step, checkers):
+    # Generate trajectory using the specified model
+    model = globals()[model_name]
+    trajectory = model(**model_params).generate_trajectory(num_steps, time_step)
+
+    # Apply checkers
+    results = {}
+    for checker_name, checker in checkers.items():
+        result = checker.is_verified(trajectory)
+        results[checker_name] = result
+
+    # Display results
+    print(f"\nResults for {model_name} model:")
+    for checker_name, result in results.items():
+        print(f"{checker_name}: {result}")
+
+
+# model_params = {
+#     'initial_price': initial_price,
+#     'volatility': volatility,
+#     'hurst_parameter': hurst_parameter,
+#     'drift': drift
+# }
+
+# # Specify the model and checkers to use
+# model_name = 'FractionalBrownianMotion'
+# checkers = {
+#     'VolatilityPersistence': VolatilityPersistence(lag=1, threshold=0.5),
+#     'ZumbachEffect': ZumbachEffect(lag=1, threshold=0.5),
+#     'ReturnsAutocorrelation': ReturnsAutocorrelation(lag=1, threshold=0.5),
+#     'HeavyTailsKurtosis': HeavyTailsKurtosis(lag=1, threshold=0.5),
+#     'GainLossSkew': GainLossSkew(lag=1, threshold=0.5),
+#     'VolatilityClustering': VolatilityClustering(lag=1, threshold=0.5),
+#     'LeverageEffect': LeverageEffect(lag=1, threshold=0.5),
+#     'ZumbachEffectSquaredReturns': ZumbachEffectSquaredReturns(lag=1, threshold=0.5)
+# }
+
+# # Execute the pipeline
+# stylized_fact_pipeline(model_name, model_params, num_steps, time_step, checkers)
