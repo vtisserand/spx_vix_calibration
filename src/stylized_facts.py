@@ -47,4 +47,22 @@ class HeavyTailsKurtosis(StylizedFact):
 
         return kurtosis > self.threshold
 
+class GainLossSkew(StylizedFact):
+    def __init__(self, lag=1, threshold=0.5):
+        self.lag = lag
+        self.threshold = threshold
+
+    def is_verified(self, prices):
+        returns = np.diff(np.log(prices))
+
+        mean_returns = np.mean(returns[:-self.lag])
+        std_returns = np.std(returns[:-self.lag])
+
+        # Calculate skewness
+        numerator = np.mean((returns[self.lag:] - mean_returns) ** 3)
+        denominator = std_returns ** 3
+
+        skewness = numerator / denominator
+
+        return np.abs(skewness) > self.threshold
 
