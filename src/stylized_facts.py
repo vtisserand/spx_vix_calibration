@@ -15,6 +15,10 @@ class StylizedFact(ABC):
         """
         pass
 
+# We follow formulas to derive statistics highlighted in: https://arxiv.org/pdf/2311.07738.pdf
+# with nice plots when appropriate.
+
+
 class ReturnsAutocorrelation(StylizedFact):
     def __init__(self, lag=1, threshold=0.5):
         self.lag = lag
@@ -66,3 +70,54 @@ class GainLossSkew(StylizedFact):
 
         return np.abs(skewness) > self.threshold
 
+class VolatilityClustering(StylizedFact):
+    def __init__(self, lag=1, threshold=0.5):
+        self.lag = lag
+        self.threshold = threshold
+
+    def is_verified(self, prices):
+        returns = np.diff(np.log(prices))
+        absolute_returns = np.abs(returns)
+
+        # Calculate linear autocorrelation of absolute returns
+        autocorrelation = np.correlate(absolute_returns[:-self.lag], absolute_returns[self.lag:], mode='full')
+        autocorrelation /= np.max(autocorrelation)  # Normalize
+
+        volatility_clustering_corr = autocorrelation[len(autocorrelation) // 2]
+        return volatility_clustering_corr > self.threshold
+    
+    def plot():
+        pass
+
+class LeverageEffect(StylizedFact):
+    def __init__(self, lag=1, threshold=0.5):
+        self.lag = lag
+        self.threshold = threshold
+
+    def is_verified(self, prices):
+        returns = np.diff(np.log(prices))
+        absolute_returns = np.abs(returns)
+
+        # Calculate correlation between squared absolute returns and returns at lag
+        squared_absolute_returns = absolute_returns ** 2
+        correlation = np.correlate(squared_absolute_returns[:-self.lag], returns[self.lag:], mode='full')
+        correlation /= np.max(correlation)  # Normalize
+
+        leverage_effect_corr = correlation[len(correlation) // 2]
+        return leverage_effect_corr > self.threshold
+
+class ZumbachEffect(StylizedFact):
+    def __init__(self, lag=1, threshold=0.5):
+        self.lag = lag
+        self.threshold = threshold
+
+    def is_verified(self, prices):
+        returns = np.diff(np.log(prices))
+
+        # Calculate Zumbach effect as the predictive power of past volatility on future returns
+        past_volatility = np.std(returns[:-self.lag])
+        future_returns = returns[self.lag:]
+
+        correlation = np.corrcoef(past_volatility, future_returns)[0, 1]
+
+        return correlation > self.threshold
