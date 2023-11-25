@@ -9,6 +9,11 @@ mkdir -p output
 # Run pdflatex to compile the document
 pdflatex -output-directory=output -interaction=nonstopmode "$main_file.tex"
 
+# Run bibliography after main.aux is generated
+bibtex "output/$main_file"
+
+pdflatex -output-directory=output -interaction=nonstopmode "$main_file.tex"
+
 # Move the resulting PDF to the current working directory (cwd)
 mv "output/$main_file.pdf" .
 

@@ -4,6 +4,10 @@ __pycache__/
 .idea
 *.ipynb
 *.pyc
+*.ipynb_checkpoints
 
 report/output/
 .github/
+
+# Ignore data
+data/
