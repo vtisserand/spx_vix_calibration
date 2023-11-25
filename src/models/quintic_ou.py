@@ -124,6 +124,9 @@ class QuinticOU(BaseModel):
         St = np.exp(logSt)
         return St
 
+    def generate_trajectory(self, num_steps, time_step):
+        pass
+
     def plot_trajectories(self, num_steps: int, time_step: int, num_sims: int = 1):
         tt = self.get_dates(num_steps, time_step)
         w1 = self.generate_brownian_trajectories(num_steps, num_sims)
@@ -135,8 +138,8 @@ class QuinticOU(BaseModel):
 
         lagged_St = np.concatenate([np.array([np.nan] * num_sims).reshape(1, num_sims), np.log(St[:-1, :])], axis=0)
         log_returns = np.log(St) - lagged_St
-        print(np.mean(log_returns[1:, :], axis=1))
-        print(max(abs(np.mean(log_returns[1:, :], axis=1))))
+        # print(np.mean(log_returns[1:, :], axis=1))
+        # print(max(abs(np.mean(log_returns[1:, :], axis=1))))
 
 
         tt = tt[:-1]
@@ -147,16 +150,7 @@ class QuinticOU(BaseModel):
             axs[0].plot(tt, Xt[:, i])
         plt.sca(axs[0])
         axs[0].set_ylabel("OU Simulations")
-<<<<<<< HEAD
-        #axs[0].set_title(
-        #    "Simulated OU Processes (eps={}, H={}, num_sims={})".format(np.round(self.eps, decimals=3), self.H, num_sims))
-=======
-        axs[0].set_title(
-            "Simulated OU Processes (eps={}, H={}, num_sims={})".format(
-                np.round(self.eps, decimals=3), self.H, num_sims
-            )
-        )
->>>>>>> main
+        #axs[0].set_title("Simulated OU Processes (eps={}, H={}, num_sims={})".format(np.round(self.eps, decimals=3), self.H, num_sims))
         # Plot volatility trajectories
         for i in range(num_sims):
             axs[1].plot(tt, volatility[:, i])
@@ -169,24 +163,14 @@ class QuinticOU(BaseModel):
         plt.sca(axs[2])
         axs[2].set_ylabel("Underlying")
         #axs[2].set_title("Simulated Underlying Paths (num_sims={})".format(num_sims))
-
         # Plot returns
         for i in range(num_sims):
             axs[3].plot(tt, log_returns[:, i])
         plt.sca(axs[3])
         axs[3].set_ylabel("Log-returns")
         #axs[3].set_title("Simulated Underlying Paths (num_sims={})".format(num_sims))
-
         plt.subplots_adjust(top=0.88)
         fig.suptitle("Quintic OU Model Simulations", fontsize=22, y=0.943)
         fig.subplots_adjust(hspace=0.3)
         # plt.savefig("Quintic_OU_simulations.pdf")
         plt.show()
-<<<<<<< HEAD
-
-
-
-
-
-=======
->>>>>>> main
