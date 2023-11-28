@@ -317,14 +317,14 @@ class KurtosisTools:
         axs[0].plot(list(range(1, 61)), arr_kurtosis_one_period_standard, label='Kurtosis computed over the whole period')
         axs[0].set_xlabel('Period (in minutes)')
         axs[0].set_ylabel('Excess kurtosis')
-        axs[0].axhline(y=3, color='red', linestyle='--')
+        axs[0].axhline(y=0, color='red', linestyle='--')
         axs[0].set_title("Excess Kurtosis of Standard Returns")
         
         axs[1].plot(list(range(1, 61)), arr_kurtosis_average_normalized)
         axs[1].plot(list(range(1, 61)), arr_kurtosis_one_period_normalized)
         axs[1].set_xlabel('Period (in minutes)')
         axs[1].set_ylabel('Excess kurtosis')
-        axs[1].axhline(y=3, color='red', linestyle='--')
+        axs[1].axhline(y=0, color='red', linestyle='--')
         axs[1].set_title("Excess Kurtosis of Daily Normalized Returns")
         
         handles, labels = axs[0].get_legend_handles_labels()
