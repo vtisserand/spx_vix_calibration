@@ -26,11 +26,12 @@ class ReturnsAutocorrelation(StylizedFact):
 
     def is_verified(self, prices):
         returns = np.diff(np.log(prices))
-        autocorrelation = np.correlate(returns[:-self.lag], returns[self.lag:], mode='full')
-        autocorrelation /= np.max(autocorrelation)  # Normalize
+        arr_corr_left = returns[:-self.lag] - np.mean(returns)
+        arr_corr_right = returns[self.lag:] - np.mean(returns)
+        autocovariance = (1 / returns.shape[0]) * np.correlate(arr_corr_left, arr_corr_right)
+        autocorrelation = autocovariance / np.var(returns)
 
-        returns_autocorr = autocorrelation[len(autocorrelation) // 2]
-        return returns_autocorr > self.threshold
+        return autocorrelation > self.threshold
 
 class HeavyTailsKurtosis(StylizedFact):
     def __init__(self, lag=1, threshold=0.5):
