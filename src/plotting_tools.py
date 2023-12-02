@@ -2,6 +2,7 @@ import pandas as pd
 import datetime
 import numpy as np
 import scipy
+import dateutil
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import statsmodels.api as sm
@@ -31,59 +32,121 @@ class DataFrameTools:
 
 
 
+
+
+
+
+
+
+
+
 class AutocorrelationTools:
 
     def __init__(self, df):
         self.df = df.copy()
 
-    @staticmethod
-    def acf_pearson(returns, lag, adjust_denominator=False, adjust_daily=False):
 
-        n = len(returns)
-        mean_returns = np.mean(returns)
-        variance_returns = np.var(returns)
-        returns = returns - mean_returns
+    @staticmethod
+    def pacf_yule_walker(r):
+        """
+        Partial autocorrelation estimate using method ywadjusted (non-recursive yule_walker, i.e. Yule-Walker with sample-size adjustment in
+        denominator for acovf).
+
+        Parameters
+        ----------
+        returns (pandas.Series): Observations of time series for which pacf is calculated.
+        nlags (int): Number of lags to return autocorrelation for. Default is 20.
+        alpha (float): If a number is given, the confidence intervals for the given level are
+                    returned. For instance if alpha=.05, 95 % confidence intervals are
+                    returned where the standard deviation is computed according to 1/sqrt(len(x)).
+        adjust_daily (bool, optional): If True, the autocovariances used in estimating the partial
+                    autocorrelations are computed by multiplying returns on same days only.
+
+        Returns
+        -------
+        pacf : ndarray
+            The partial autocorrelations for lags 0, 1, ..., nlags. Shape
+            (nlags+1,).
+        confint : float, optional
+            Confidence intervals for the PACF. Returned if alpha is not None.
+        """
+        nlags = len(r)
+        pacf = [1.0]
+        for k in range(1, nlags):
+            print('Yule-Walker lag: {}'.format(k))
+            r_temp = r[:k + 1]
+            R = toeplitz(r_temp[:-1])
+            try:
+                rho = np.linalg.solve(R, r_temp[1:])
+            except np.linalg.LinAlgError as err:
+                if 'Singular matrix' in str(err):
+                    warnings.warn("Matrix is singular. Using pinv.", ValueWarning)
+                    rho = np.linalg.pinv(R) @ r_temp[1:]
+                else:
+                    raise
+            pacf.append(rho[-1])
         
-        if lag == 0:
-            arr_corr_left = returns
-            arr_corr_right = arr_corr_left
-        else:
-            df = returns.iloc[:-lag].reset_index()
-            df_lagged = returns.iloc[lag:].reset_index().rename(columns={'Time': 'Time Lagged', 'Log-returns': 'Log-returns Lagged'})
+        return np.array(pacf)
+
+
+    def calculate_autocorrelations(self, returns, nlags=20, alpha=0.95, adjust_denominator=False, adjust_daily=False):
+        """
+        Construct the series of returns and plot the autocorrelations
+
+        ACF: computed using Pearson autocorrelation coefficients
+
+        Parameters:
+        - start_date (datetime.datetime): The start date to be considered when calculating the autocorrelations
+        - end_date (datetime.datetime): The end date to be considered when calculating the autocorrelations
+        - with_pacf (bool): A boolean value equal to True if the PACF needs to be displayed, otherwise False
+        - nlags (int): The maximum lag to be displayed. Default is 20
+        - confidence_level (float): The confidence level for the confidence interval of the autocorrelations. Default is 0.95
+        - transformation (func): A function to be applied to the returns, e.g. the absolute value function. Default is the identity function.
+        - title (string): The title of the figure. Default is 'Autocorrelations'
+
+        Returns:
+        - None
+        """
+        variance_returns = returns.var(ddof=0)
+        returns -= returns.mean()
+        coef = stats.norm.ppf(1.0 - ((1 - alpha) / 2.0))
+
+        acf = np.zeros(nlags + 1, np.float64)
+        acf[0] = 1
+        r = np.zeros(nlags + 1, np.float64)
+        r[0] = variance_returns
+        confint = np.zeros(nlags + 1, np.float64)
+        confint[0] = 1
+        for k in range(1, nlags + 1):
+            df = returns.iloc[:-k].reset_index()
+            df_lagged = returns.iloc[k:].reset_index().rename(columns={'Time': 'Time Lagged', 'Log-returns': 'Log-returns Lagged'})
             df = pd.concat([df, df_lagged], axis=1)
             if adjust_daily:
                 df = df.loc[df.apply(lambda row: row['Time'].split(' ')[0] == row['Time Lagged'].split(' ')[0], axis=1)].copy()
             arr_corr_left = np.array(df['Log-returns'].to_list())
             arr_corr_right = np.array(df['Log-returns Lagged'].to_list())
-
-        print('Lag ACF: {}'.format(lag))
-
-        autocovariance = (1 / (n - lag * adjust_denominator)) * np.correlate(arr_corr_left, arr_corr_right)
-        autocorrelation = autocovariance / variance_returns
-        return autocorrelation[0]
-
-
-    def acf(self, returns, nlags=20, alpha=None, adjust_denominator=False, adjust_daily=False):
-
-        nlags = int_like(nlags, "nlags", optional=True)
-        alpha = float_like(alpha, "alpha", optional=True)
-        adjust_daily = bool_like(adjust_daily, "adjust_daily", optional=True)
-
-        acf = [1.0]
-        for k in range(1, nlags + 1):
-            acf.append(self.acf_pearson(returns, k, adjust_denominator=adjust_denominator, adjust_daily=adjust_daily))
-        ret = np.array(acf)
+            n = len(arr_corr_left) + k
+            confint[k] = coef * np.sqrt(1.0 / n)
+            r[k] = (1 / (n - k * adjust_denominator)) * np.correlate(arr_corr_left, arr_corr_right)[0]
+            acf[k] = r[k] / variance_returns
+            print('Construction lag: {}, nb datapoints={}'.format(k, n))
         
-        if alpha is not None:
-            varacf = 1.0 / len(returns)
-            confint = stats.norm.ppf(1.0 - ((1 - alpha) / 2.0)) * np.sqrt(varacf)
-            return ret, confint
-        else:
-            return ret
+        print('__________________')
+        
+        pacf = self.pacf_yule_walker(r)
+        return acf, pacf, confint
+
+
+
+
+
+
+
+
 
 
     @staticmethod
-    def pacf_yule_walker(returns, order=1, adjust_denominator=False, adjust_daily=False):
+    def pacf_yule_walker_old(returns, order=1, adjust_denominator=False, adjust_daily=False):
         """
         Estimate AR(p) parameters from a sequence using the Yule-Walker equations.
 
@@ -143,7 +206,7 @@ class AutocorrelationTools:
         return rho, sigma
 
 
-    def pacf(self, returns, nlags=20, alpha=None, adjust_denominator=False, adjust_daily=False):
+    def pacf_old(self, returns, nlags=20, alpha=None, adjust_denominator=False, adjust_daily=False):
         """
         Partial autocorrelation estimate using method ywadjusted (non-recursive yule_walker, i.e. Yule-Walker with sample-size adjustment in
         denominator for acovf).
@@ -181,59 +244,9 @@ class AutocorrelationTools:
             return ret, confint
         else:
             return ret
-
-
-    def plot_autocorrelations_without_pacf(self, returns, nlags, alpha=0.05, adjust_denominator=False,
-                                           adjust_daily=False, title="Autocorrelations"):
-        """
-        Plot the ACF of the time series given as input.
-
-        Parameters:
-        - returns (list or numpy.ndarray): Time series
-        - nlags (int): The maximum lag to be displayed
-        - confidence_level (float): The confidence level for the confidence interval of the autocorrelations
-        - title (string): The title of the figure.
-
-        Returns:
-        - None
-        """
-        arr_acf, confidence_band = self.acf(returns, nlags=nlags, alpha=alpha,
-                                            adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)
-        str_confidence_level = str(np.round(100 * alpha, decimals=0)).split('.0')[0]
-
-        arr_acf = arr_acf[1:]
-        x = np.array(range(1, nlags+1))
-
-        fig, ax = plt.subplots(figsize=(7, 4))
-        color = '#1f77b4'
-        margin = 0.01
-        max_abs_value = max(abs(min(arr_acf)), abs(max(arr_acf)))
-        max_y_value = max_abs_value + margin
-        min_y_value = -max_abs_value - margin
-
-        # Plot ACF using stem plot
-        ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-        markerline, stemlines, baseline = ax.stem(x, arr_acf, linefmt='-', basefmt=' ')
-        plt.setp(stemlines, 'color', color) # Set stem line color
-        plt.setp(markerline, 'color', color) # Set marker line color
-        ax.set_xlabel('Lag (in minutes)')
-        ax.set_ylabel('ACF')
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.set_ylim(min_y_value, max_y_value)
-        odd_x_ticks = np.arange(1, nlags + 1, 2)
-        ax.set_xticks(odd_x_ticks)
-        ax.set_xticklabels(odd_x_ticks)
-        ax.axhline(y=confidence_band, color='red', linestyle='--', label="{}% confidence interval".format(str_confidence_level))
-        ax.axhline(y=-confidence_band, color='red', linestyle='--')
-
-        handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, bbox_to_anchor=(0.68, 0.88))
-        fig.suptitle(title, fontsize=22, y=0.97)
-        fig.subplots_adjust(hspace=0.2, top=0.75)
-        plt.show()
     
 
-    def plot_autocorrelations_with_pacf(self, arr_acf, arr_pacf, confidence_band, nlags, alpha=0.05, title="Autocorrelations"):
+    def plot_acf_pacf(self, acf, pacf, confint, alpha, title="Autocorrelations", upload_path=None):
         """
         Plot the ACF and PACF of the time series given as input.
 
@@ -248,15 +261,19 @@ class AutocorrelationTools:
         """
         str_confidence_level = str(np.round(100 * alpha, decimals=0)).split('.0')[0]
 
-        arr_acf = arr_acf[1:]
-        arr_pacf = arr_pacf[1:]
+        acf = acf[1:]
+        pacf = pacf[1:]
+        confint = confint[1:]
+        nlags = len(acf)
         x = np.array(range(1, nlags+1))
 
         fig, [ax1, ax2] = plt.subplots(2, 1, sharex=True, figsize=(7, 4))
-        margin = 0.01
-        max_abs_value = max(abs(min(min(arr_acf), min(arr_pacf))), abs(max(max(arr_acf), max(arr_pacf))))
-        max_y_value = max_abs_value + margin
-        min_y_value = -max_abs_value - margin
+        max_nlags_stem = 50
+        x_margin = max(0.5, (len(acf) + 1) / 60)
+        y_margin = 0.01
+        max_abs_value = max(abs(min(min(acf), min(pacf))), abs(max(max(acf), max(pacf))))
+        max_y_value = max_abs_value + y_margin
+        min_y_value = -max_abs_value - y_margin
 
         color = '#1f77b4'
         color_stemlines = color
@@ -264,8 +281,8 @@ class AutocorrelationTools:
 
         # Plot ACF using stem plot
         ax1.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-        if nlags <= 2:
-            markerline, stemlines, baseline = ax1.stem(x, arr_acf, linefmt='-', basefmt=' ')
+        if nlags <= max_nlags_stem:
+            markerline, stemlines, baseline = ax1.stem(x, acf, linefmt='-', basefmt=' ')
             plt.setp(stemlines, 'color', color_stemlines) # Set stem line color
             plt.setp(markerline, 'color', color_markerline) # Set marker line color
             ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
@@ -273,25 +290,27 @@ class AutocorrelationTools:
             ax1.set_xticks(odd_x_ticks)
             ax1.set_xticklabels(odd_x_ticks)
         else:
-            ax1.scatter(x, arr_acf, color=color, marker='o', s=10)
+            ax1.scatter(x, acf, color=color, marker='o', s=10)
+        ax1.set_xlim(1 - x_margin, max(x) + x_margin)
         ax1.set_ylabel('ACF')
         ax1.set_ylim(min_y_value, max_y_value)
-        ax1.axhline(y=confidence_band, color='red', linestyle='--', label="{}% confidence interval".format(str_confidence_level))
-        ax1.axhline(y=-confidence_band, color='red', linestyle='--')
+        ax1.plot(x, confint, color='red', linestyle='--', label="{}% confidence interval".format(str_confidence_level))
+        ax1.plot(x, -confint, color='red', linestyle='--')
 
         # Plot PACF using stem plot
         ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-        if nlags <= 2:
-            markerline, stemlines, baseline = ax2.stem(x, arr_pacf, linefmt='-', basefmt=' ')
+        if nlags <= max_nlags_stem:
+            markerline, stemlines, baseline = ax2.stem(x, pacf, linefmt='-', basefmt=' ')
             plt.setp(stemlines, 'color', color_stemlines) # Set stem line color
             plt.setp(markerline, 'color', color_markerline) # Set marker line color
         else:
-            ax2.scatter(x, arr_pacf, color=color, marker='o', s=10)
+            ax2.scatter(x, pacf, color=color, marker='o', s=10)
         ax2.set_xlabel('Lag (in minutes)')
+        ax2.set_xlim(1 - x_margin, max(x) + x_margin)
         ax2.set_ylabel('PACF')
         ax2.set_ylim(min_y_value, max_y_value)
-        ax2.axhline(y=confidence_band, color='red', linestyle='--')
-        ax2.axhline(y=-confidence_band, color='red', linestyle='--')
+        ax2.plot(x, confint, color='red', linestyle='--')
+        ax2.plot(x, -confint, color='red', linestyle='--')
 
         handles, labels = ax1.get_legend_handles_labels()
         fig.legend(handles, labels, bbox_to_anchor=(0.9, 0.985))
@@ -305,12 +324,13 @@ class AutocorrelationTools:
 
         # Modifier la fonction plot_autocorrelations_without_pacf
         
-        #plt.savefig('Absolute_autocorrelations.pdf')
+        if upload_path is not None:
+            plt.savefig(upload_path)
         plt.show()
 
 
-    def plot_autocorrelations(self, start_date, end_date, with_pacf, nlags=20, alpha=0.95, adjust_denominator=False,
-        adjust_daily=False, transformation=lambda x: x, title="Autocorrelations"):
+    def plot_autocorrelations(self, start_date, end_date, filter_minutes=15, nlags=20, alpha=0.95, adjust_denominator=False,
+        adjust_daily=False, transformation=lambda x: x, title="Autocorrelations", upload_path=None):
         """
         Construct the series of returns and plot the autocorrelations
 
@@ -330,70 +350,23 @@ class AutocorrelationTools:
         df = df.loc[(df['Time Datetime'] >= start_date) & (df['Time Datetime'] <= end_date)].copy()
         df.reset_index(drop=True, inplace=True)
 
-        daily_start_date = datetime.datetime(year=1900, month=1, day=1, hour=10, minute=0)
-        daily_end_date = datetime.datetime(year=1900, month=1, day=1, hour=15, minute=30)
+        # Filter out the returns at the beginning and end of day
+        daily_start_date = datetime.datetime(year=1900, month=1, day=1, hour=9, minute=30)
+        daily_end_date = datetime.datetime(year=1900, month=1, day=1, hour=16, minute=0)
+        daily_start_date = daily_start_date + dateutil.relativedelta.relativedelta(minutes=filter_minutes)
+        daily_end_date = daily_end_date + dateutil.relativedelta.relativedelta(minutes=-filter_minutes)
         df = df.loc[(df['Hour Datetime'] >= daily_start_date) & (df['Hour Datetime'] <= daily_end_date)].copy()
 
         df.set_index('Time', inplace=True)
         returns = df['Log-returns 1-min Period']
         returns.name = 'Log-returns'
         returns = transformation(returns)
-        if with_pacf:
-            self.plot_autocorrelations_with_pacf(returns, nlags=nlags, alpha=alpha,
-                adjust_denominator=adjust_denominator, adjust_daily=adjust_daily, title=title)
-        else:
-            self.plot_autocorrelations_without_pacf(returns, nlags=nlags, alpha=alpha,
-                adjust_denominator=adjust_denominator, adjust_daily=adjust_daily, title=title)
 
-
-
-
-
-
-
-
-    @staticmethod
-    def pacf_yule_walker_test(returns, order=1, adjust_denominator=False, adjust_daily=False):
-        """
-        Estimate AR(p) parameters from a sequence using the Yule-Walker equations.
-
-        Adjusted or maximum-likelihood estimator (mle)
-
-        Parameters
-        ----------
-        x : array_like
-            A 1d array.
-        order : int, optional
-            The order of the autoregressive process. Default is 1.
-        adjust_denominator : bool, optional
-        Determines denominator in estimate of autocorrelation function (ACF) at
-        lag k. If False, the denominator is n=len(returns), if True
-        the denominator is n-k. The default is False.
-
-        Returns
-        -------
-        rho : ndarray
-            AR(p) coefficients computed using the Yule-Walker method.
-        sigma : float
-            The estimate of the residual standard deviation.
-        """
-        returns -= returns.mean()
-        n = len(returns)
-
-        r = np.zeros(order+1, np.float64)
-        r[0] = returns.var(ddof=0)
+        acf, pacf, confint = self.calculate_autocorrelations(returns, nlags=nlags, alpha=alpha,
+            adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)
         
-        for k in range(1, order+1):
-            df = returns.iloc[:-k].reset_index()
-            df_lagged = returns.iloc[k:].reset_index().rename(columns={'Time': 'Time Lagged', 'Log-returns': 'Log-returns Lagged'})
-            df = pd.concat([df, df_lagged], axis=1)
-            if adjust_daily:
-                df = df.loc[df.apply(lambda row: row['Time'].split(' ')[0] == row['Time Lagged'].split(' ')[0], axis=1)].copy()
-            arr_corr_left = np.array(df['Log-returns'].to_list())
-            arr_corr_right = np.array(df['Log-returns Lagged'].to_list())
-            r[k] = (1 / (n - k * adjust_denominator)) * np.correlate(arr_corr_left, arr_corr_right)[0]
-            if k == order:
-                print('Lag PACF: {}, len={}'.format(k, len(df)))
+
+        self.plot_acf_pacf(acf, pacf, confint, alpha=alpha, title=title, upload_path=upload_path)
 
 
 
@@ -407,96 +380,15 @@ class AutocorrelationTools:
 
 
 
-    def pacf_fast(self, r):
-        """
-        Partial autocorrelation estimate using method ywadjusted (non-recursive yule_walker, i.e. Yule-Walker with sample-size adjustment in
-        denominator for acovf).
-
-        Parameters
-        ----------
-        returns (pandas.Series): Observations of time series for which pacf is calculated.
-        nlags (int): Number of lags to return autocorrelation for. Default is 20.
-        alpha (float): If a number is given, the confidence intervals for the given level are
-                    returned. For instance if alpha=.05, 95 % confidence intervals are
-                    returned where the standard deviation is computed according to 1/sqrt(len(x)).
-        adjust_daily (bool, optional): If True, the autocovariances used in estimating the partial
-                    autocorrelations are computed by multiplying returns on same days only.
-
-        Returns
-        -------
-        pacf : ndarray
-            The partial autocorrelations for lags 0, 1, ..., nlags. Shape
-            (nlags+1,).
-        confint : float, optional
-            Confidence intervals for the PACF. Returned if alpha is not None.
-        """
-        nlags = len(r)
-
-        pacf = [1.0]
-        for k in range(1, nlags):
-            r_temp = r[:k + 1]
-            R = toeplitz(r_temp[:-1])
-            try:
-                rho = np.linalg.solve(R, r_temp[1:])
-            except np.linalg.LinAlgError as err:
-                if 'Singular matrix' in str(err):
-                    warnings.warn("Matrix is singular. Using pinv.", ValueWarning)
-                    rho = np.linalg.pinv(R) @ r_temp[1:]
-                else:
-                    raise
-            pacf.append(rho[-1])
-        
-        return np.array(pacf)
 
 
 
-    def plot_autocorrelations_fast(self, returns, nlags=20, alpha=0.95, adjust_denominator=False,
-        adjust_daily=False):
-        """
-        Construct the series of returns and plot the autocorrelations
-
-        Parameters:
-        - start_date (datetime.datetime): The start date to be considered when calculating the autocorrelations
-        - end_date (datetime.datetime): The end date to be considered when calculating the autocorrelations
-        - with_pacf (bool): A boolean value equal to True if the PACF needs to be displayed, otherwise False
-        - nlags (int): The maximum lag to be displayed. Default is 20
-        - confidence_level (float): The confidence level for the confidence interval of the autocorrelations. Default is 0.95
-        - transformation (func): A function to be applied to the returns, e.g. the absolute value function. Default is the identity function.
-        - title (string): The title of the figure. Default is 'Autocorrelations'
-
-        Returns:
-        - None
-        """
-
-        varacf = 1.0 / len(returns)
-        confint = stats.norm.ppf(1.0 - ((1 - alpha) / 2.0)) * np.sqrt(varacf)
 
 
-        variance_returns = returns.var(ddof=0)
-        returns -= returns.mean()
-        n = len(returns)
-
-        acf = np.zeros(nlags + 1, np.float64)
-        acf[0] = 1
-        r = np.zeros(nlags + 1, np.float64)
-        r[0] = variance_returns
-        for k in range(1, nlags + 1):
-            df = returns.iloc[:-k].reset_index()
-            df_lagged = returns.iloc[k:].reset_index().rename(columns={'Time': 'Time Lagged', 'Log-returns': 'Log-returns Lagged'})
-            df = pd.concat([df, df_lagged], axis=1)
-            if adjust_daily:
-                df = df.loc[df.apply(lambda row: row['Time'].split(' ')[0] == row['Time Lagged'].split(' ')[0], axis=1)].copy()
-            arr_corr_left = np.array(df['Log-returns'].to_list())
-            arr_corr_right = np.array(df['Log-returns Lagged'].to_list())
-            r[k] = (1 / (n - k * adjust_denominator)) * np.correlate(arr_corr_left, arr_corr_right)[0]
-            acf[k] = r[k] / variance_returns
 
 
-            if k == nlags:
-                print('Lag PACF: {}, len={}'.format(k, len(df)))
-        
-        pacf = self.pacf_fast(r)
-        return acf, pacf, confint
+
+
 
     
 

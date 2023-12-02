@@ -4,22 +4,23 @@ from plotting_tools import *
 
 def main():
     wd = "E:\\OneDrive\\Documents\\MIASHS 2022-10\\ENSAE_2023-2024\\Calibration VIX-SPX\\Data\\Clean_data\\"
-    df = pd.read_parquet(wd + "spx500_intraday_1min_barchart_log_returns.parquet")
+    df = pd.read_parquet(wd + "spx500_intraday_1min_barchart_log_returns_short.parquet")
     dataframe_tools = DataFrameTools()
     df = dataframe_tools.construct_datetime_columns(df, construct_time=True, construct_date=True, construct_hour=True)
 
     start_date = datetime.datetime(year=2023, month=8, day=1)
     end_date = datetime.datetime(year=2023, month=11, day=30)
-    with_pacf = True
 
-
-    nlags = 330
+    filter_minutes = 30
+    nlags = 20
+    alpha = 0.95
     title = "Autocorrelations"
     autocorrelation_tools = AutocorrelationTools(df)
-    #autocorrelation_tools.plot_autocorrelations(start_date, end_date, with_pacf, nlags=nlags, alpha=0.95,
-    #    adjust_denominator=False, adjust_daily=False, transformation=lambda x: x, title=title)
-    autocorrelation_tools.plot_autocorrelations(start_date, end_date, with_pacf, nlags=nlags, alpha=0.95,
-        adjust_denominator=False, adjust_daily=True, transformation=lambda x: np.abs(x), title=title)
+
+    autocorrelation_tools.plot_autocorrelations(start_date, end_date, filter_minutes=filter_minutes, nlags=nlags, alpha=alpha,
+        adjust_denominator=False, adjust_daily=False, transformation=lambda x: x, title=title, upload_path=None)
+    #autocorrelation_tools.plot_autocorrelations(start_date, end_date, filter_minutes=filter_minutes, nlags=nlags, alpha=alpha,
+    #    adjust_denominator=False, adjust_daily=False, transformation=lambda x: np.abs(x), title=title, upload_path=None)
 
     """
     start_date = datetime.datetime(year=2023, month=1, day=4)
