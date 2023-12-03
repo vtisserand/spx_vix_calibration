@@ -32,14 +32,6 @@ class DataFrameTools:
 
 
 
-
-
-
-
-
-
-
-
 class AutocorrelationTools:
 
     def __init__(self, df):
@@ -49,26 +41,15 @@ class AutocorrelationTools:
     @staticmethod
     def pacf_yule_walker(r):
         """
-        Partial autocorrelation estimate using method ywadjusted (non-recursive yule_walker, i.e. Yule-Walker with sample-size adjustment in
-        denominator for acovf).
+        Compute the partial autocorrelation estimates using Yule Walker equations.
 
         Parameters
         ----------
-        returns (pandas.Series): Observations of time series for which pacf is calculated.
-        nlags (int): Number of lags to return autocorrelation for. Default is 20.
-        alpha (float): If a number is given, the confidence intervals for the given level are
-                    returned. For instance if alpha=.05, 95 % confidence intervals are
-                    returned where the standard deviation is computed according to 1/sqrt(len(x)).
-        adjust_daily (bool, optional): If True, the autocovariances used in estimating the partial
-                    autocorrelations are computed by multiplying returns on same days only.
+        r (numpy.ndarray): The autocovariances of the returns for lags 0, 1, ..., nlags. Shape (nlags+1,).
 
         Returns
         -------
-        pacf : ndarray
-            The partial autocorrelations for lags 0, 1, ..., nlags. Shape
-            (nlags+1,).
-        confint : float, optional
-            Confidence intervals for the PACF. Returned if alpha is not None.
+        pacf (numpy.ndarray): The partial autocorrelations for lags 0, 1, ..., nlags. Shape (nlags+1,).
         """
         nlags = len(r)
         pacf = [1.0]
@@ -85,31 +66,43 @@ class AutocorrelationTools:
                 else:
                     raise
             pacf.append(rho[-1])
-        
-        return np.array(pacf)
+        pacf = np.array(pacf)
+    
+        return pacf
 
 
-    def calculate_autocorrelations(self, returns, nlags=20, alpha=0.95, adjust_denominator=False, adjust_daily=False):
+    def calculate_autocorrelations(self, returns, nlags=20, alpha=0.05, adjust_denominator=False, adjust_daily=False):
         """
-        Construct the series of returns and plot the autocorrelations
+        Compute the autocorrelations and partial autocorrelations.
 
-        ACF: computed using Pearson autocorrelation coefficients
+        Parameters
+        ----------
+        returns (pandas.core.series.Series): A pandas Series containing the returns.
+            The index should be named 'Time' and contain the times associated with the returns as strings
+            with format '%Y-%m-%d %H:%M:%S', while the Series itself should be named 'Log-returns'.
+        nlags (int, optional): The number of lags to return autocorrelation for. Default is 20.
+        alpha (float, optional): The confidence level for the confidence intervals of the autocorrelations.
+            For instance if alpha=.05, 95% confidence intervals are returned where the standard deviation
+            is computed according to 1/sqrt(number of observations). Default is 0.05.
+        adjust_denominator (bool, optional): Determines denominator in estimate of autocorrelation function (ACF)
+            at lag k. If False, the denominator is n=len(returns), if True the denominator is n-k. Default is False.
+        adjust_daily (bool, optional): If True, the autocovariances used in estimating the
+            autocorrelations are computed by multiplying returns on same days only. This means that
+            the larger the lag, the less data we use to compute the autocorrelations. Default is False.
 
-        Parameters:
-        - start_date (datetime.datetime): The start date to be considered when calculating the autocorrelations
-        - end_date (datetime.datetime): The end date to be considered when calculating the autocorrelations
-        - with_pacf (bool): A boolean value equal to True if the PACF needs to be displayed, otherwise False
-        - nlags (int): The maximum lag to be displayed. Default is 20
-        - confidence_level (float): The confidence level for the confidence interval of the autocorrelations. Default is 0.95
-        - transformation (func): A function to be applied to the returns, e.g. the absolute value function. Default is the identity function.
-        - title (string): The title of the figure. Default is 'Autocorrelations'
-
-        Returns:
-        - None
+        Returns
+        -------
+        acf (numpy.ndarray): The autocorrelations for lags 0, 1, ..., nlags computed using
+            Pearson autocorrelation coefficients. Shape (nlags+1,).
+        pacf (numpy.ndarray): The partial autocorrelations for lags 0, 1, ..., nlags
+            computed using Yule Walker equations. Shape (nlags+1,).
+        confint (numpy.ndarray): The upper bounds of the symmetric confidence intervals for the
+            autocorrelations of lags 0, 1, ..., nlags. That is, the confidence interval of
+            autocorrelation of lag k is given by [-confint[k], confint[k]]. Shape (nlags+1,).
         """
         variance_returns = returns.var(ddof=0)
         returns -= returns.mean()
-        coef = stats.norm.ppf(1.0 - ((1 - alpha) / 2.0))
+        coef = stats.norm.ppf(1.0 - (alpha / 2.0))
 
         acf = np.zeros(nlags + 1, np.float64)
         acf[0] = 1
@@ -137,129 +130,27 @@ class AutocorrelationTools:
         return acf, pacf, confint
 
 
-
-
-
-
-
-
-
-
-    @staticmethod
-    def pacf_yule_walker_old(returns, order=1, adjust_denominator=False, adjust_daily=False):
-        """
-        Estimate AR(p) parameters from a sequence using the Yule-Walker equations.
-
-        Adjusted or maximum-likelihood estimator (mle)
-
-        Parameters
-        ----------
-        x : array_like
-            A 1d array.
-        order : int, optional
-            The order of the autoregressive process. Default is 1.
-        adjust_denominator : bool, optional
-        Determines denominator in estimate of autocorrelation function (ACF) at
-        lag k. If False, the denominator is n=len(returns), if True
-        the denominator is n-k. The default is False.
-
-        Returns
-        -------
-        rho : ndarray
-            AR(p) coefficients computed using the Yule-Walker method.
-        sigma : float
-            The estimate of the residual standard deviation.
-        """
-        returns -= returns.mean()
-        n = len(returns)
-
-        r = np.zeros(order+1, np.float64)
-        r[0] = returns.var(ddof=0)
-        
-        for k in range(1, order+1):
-            df = returns.iloc[:-k].reset_index()
-            df_lagged = returns.iloc[k:].reset_index().rename(columns={'Time': 'Time Lagged', 'Log-returns': 'Log-returns Lagged'})
-            df = pd.concat([df, df_lagged], axis=1)
-            if adjust_daily:
-                df = df.loc[df.apply(lambda row: row['Time'].split(' ')[0] == row['Time Lagged'].split(' ')[0], axis=1)].copy()
-            arr_corr_left = np.array(df['Log-returns'].to_list())
-            arr_corr_right = np.array(df['Log-returns Lagged'].to_list())
-            r[k] = (1 / (n - k * adjust_denominator)) * np.correlate(arr_corr_left, arr_corr_right)[0]
-
-        print(r)
-        R = toeplitz(r[:-1])
-
-        try:
-            rho = np.linalg.solve(R, r[1:])
-        except np.linalg.LinAlgError as err:
-            if 'Singular matrix' in str(err):
-                warnings.warn("Matrix is singular. Using pinv.", ValueWarning)
-                rho = np.linalg.pinv(R) @ r[1:]
-            else:
-                raise
-
-        sigmasq = r[0] - (r[1:]*rho).sum()
-        if not np.isnan(sigmasq) and sigmasq > 0:
-            sigma = np.sqrt(sigmasq)
-        else:
-            sigma = np.nan
-        return rho, sigma
-
-
-    def pacf_old(self, returns, nlags=20, alpha=None, adjust_denominator=False, adjust_daily=False):
-        """
-        Partial autocorrelation estimate using method ywadjusted (non-recursive yule_walker, i.e. Yule-Walker with sample-size adjustment in
-        denominator for acovf).
-
-        Parameters
-        ----------
-        returns (pandas.Series): Observations of time series for which pacf is calculated.
-        nlags (int): Number of lags to return autocorrelation for. Default is 20.
-        alpha (float): If a number is given, the confidence intervals for the given level are
-                    returned. For instance if alpha=.05, 95 % confidence intervals are
-                    returned where the standard deviation is computed according to 1/sqrt(len(x)).
-        adjust_daily (bool, optional): If True, the autocovariances used in estimating the partial
-                    autocorrelations are computed by multiplying returns on same days only.
-
-        Returns
-        -------
-        pacf : ndarray
-            The partial autocorrelations for lags 0, 1, ..., nlags. Shape
-            (nlags+1,).
-        confint : float, optional
-            Confidence intervals for the PACF. Returned if alpha is not None.
-        """
-        nlags = int_like(nlags, "nlags", optional=True)
-        alpha = float_like(alpha, "alpha", optional=True)
-        adjust_daily = bool_like(adjust_daily, "adjust_daily", optional=True)
-
-        pacf = [1.0]
-        for k in range(1, nlags + 1):
-            pacf.append(self.pacf_yule_walker(returns, k, adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)[0][-1])
-        ret = np.array(pacf)
-
-        if alpha is not None:
-            varacf = 1.0 / len(returns)
-            confint = stats.norm.ppf(1.0 - ((1 - alpha) / 2.0)) * np.sqrt(varacf)
-            return ret, confint
-        else:
-            return ret
-    
-
     def plot_acf_pacf(self, acf, pacf, confint, alpha, title="Autocorrelations", upload_path=None):
         """
-        Plot the ACF and PACF of the time series given as input.
+        Plot the ACF and PACF of the time series.
 
-        Parameters:
-        - returns (list or numpy.ndarray): Time series
-        - nlags (int): The maximum lag to be displayed
-        - confidence_level (float): The confidence level for the confidence interval of the autocorrelations
-        - title (string): The title of the figure.
+        Parameters
+        ----------
+        acf (numpy.ndarray): The autocorrelations for lags 0, 1, ..., len(acf)-1.
+        pacf (numpy.ndarray): The partial autocorrelations for lags 0, 1, ..., len(pacf)-1.
+        confint (numpy.ndarray): The upper bounds of the symmetric confidence intervals for the
+            autocorrelations of lags 0, 1, ..., len(confint)-1. That is, the confidence interval of
+            autocorrelation of lag k should be given by [-confint[k], confint[k]].
+        alpha (float): The confidence level for the confidence intervals of the autocorrelations.
+        title (string, optional): The title of the figure. Default is 'Autocorrelations'
+        upload_path (string or None, optional): The path where to save the figure. If not None,
+            the figure is saved according to the input path. If None, the figure is not saved.
 
-        Returns:
-        - None
+        Returns
+        -------
+        None
         """
-        str_confidence_level = str(np.round(100 * alpha, decimals=0)).split('.0')[0]
+        str_confidence_level = str(np.round(100 * (1 - alpha), decimals=0)).split('.0')[0]
 
         acf = acf[1:]
         pacf = pacf[1:]
@@ -317,40 +208,45 @@ class AutocorrelationTools:
         fig.suptitle(title, fontsize=22, x=0.35, y=0.97)
         fig.subplots_adjust(hspace=0.2, top=0.85)
         
-        # Plot intraday autocorrelations, i.e. autocorrelations where the products are only with returns
-        # on a same day. This means that we can't have a lag larger than 330, and that the larger
-        # the lag, the less data we use to compute the autocorrelations -> Thus, the confidence bands
-        # needs to be adjusted.
-
-        # Modifier la fonction plot_autocorrelations_without_pacf
-        
         if upload_path is not None:
             plt.savefig(upload_path)
         plt.show()
 
 
-    def plot_autocorrelations(self, start_date, end_date, filter_minutes=15, nlags=20, alpha=0.95, adjust_denominator=False,
+    def plot_autocorrelations(self, start_date, end_date, filter_minutes=15, nlags=20, alpha=0.05, adjust_denominator=False,
         adjust_daily=False, transformation=lambda x: x, title="Autocorrelations", upload_path=None):
         """
-        Construct the series of returns and plot the autocorrelations
+        Construct the series of returns and plot the autocorrelations.
 
-        Parameters:
-        - start_date (datetime.datetime): The start date to be considered when calculating the autocorrelations
-        - end_date (datetime.datetime): The end date to be considered when calculating the autocorrelations
-        - with_pacf (bool): A boolean value equal to True if the PACF needs to be displayed, otherwise False
-        - nlags (int): The maximum lag to be displayed. Default is 20
-        - confidence_level (float): The confidence level for the confidence interval of the autocorrelations. Default is 0.95
-        - transformation (func): A function to be applied to the returns, e.g. the absolute value function. Default is the identity function.
-        - title (string): The title of the figure. Default is 'Autocorrelations'
+        Parameters
+        ----------
+        start_date (datetime.datetime): The start date to be considered when calculating the autocorrelations.
+        end_date (datetime.datetime): The end date to be considered when calculating the autocorrelations.
+        filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15
+        nlags (int, optional): The number of lags to plot autocorrelation for. Default is 20.
+        alpha (float, optional): The confidence level for the confidence intervals of the autocorrelations.
+            For instance if alpha=.05, 95% confidence intervals are plotted where the standard deviation
+            is computed according to 1/sqrt(number of observations). Default is 0.05.
+        adjust_denominator (bool, optional): Determines denominator in estimate of autocorrelation function (ACF)
+            at lag k. If False, the denominator is n=len(returns), if True the denominator is n-k. Default is False.
+        adjust_daily (bool, optional): If True, the autocovariances used in estimating the
+            autocorrelations are computed by multiplying returns on same days only. This means that
+            the larger the lag, the less data we use to compute the autocorrelations. Default is False.
+        transformation (func, optional): A function to be applied to the returns, e.g. the absolute value function.
+            Default is the identity function.
+        title (string, optional): The title of the figure. Default is 'Autocorrelations'
+        upload_path (string or None, optional): The path where to save the figure. If not None,
+            the figure is saved according to the input path. If None, the figure is not saved.
 
-        Returns:
-        - None
+        Returns
+        -------
+        None
         """
         df = self.df.copy()
         df = df.loc[(df['Time Datetime'] >= start_date) & (df['Time Datetime'] <= end_date)].copy()
         df.reset_index(drop=True, inplace=True)
 
-        # Filter out the returns at the beginning and end of day
+        # Filter out the returns at the beginning and end of each day
         daily_start_date = datetime.datetime(year=1900, month=1, day=1, hour=9, minute=30)
         daily_end_date = datetime.datetime(year=1900, month=1, day=1, hour=16, minute=0)
         daily_start_date = daily_start_date + dateutil.relativedelta.relativedelta(minutes=filter_minutes)
@@ -364,35 +260,10 @@ class AutocorrelationTools:
 
         acf, pacf, confint = self.calculate_autocorrelations(returns, nlags=nlags, alpha=alpha,
             adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)
-        
 
         self.plot_acf_pacf(acf, pacf, confint, alpha=alpha, title=title, upload_path=upload_path)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-            
 
 
 class KurtosisTools:
