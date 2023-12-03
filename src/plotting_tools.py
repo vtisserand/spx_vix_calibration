@@ -19,7 +19,7 @@ class DataFrameTools:
         if construct_hour:
             df['Hour Datetime'] = df['Hour'].apply(lambda value: datetime.datetime.strptime(value, '%H:%M:%S'))
         return df
-    
+
 
 
 
@@ -257,6 +257,13 @@ class AutocorrelationTools:
 
 
 
+
+
+
+
+
+
+
 class KurtosisTools:
 
     def __init__(self, df):
@@ -264,7 +271,7 @@ class KurtosisTools:
 
 
     @staticmethod
-    def compute_log_returns(df, normalize):
+    def compute_log_returns(df, period, normalize, filter_minutes=15):
         """
         Adjust the log-returns contained in the dataframe df, so as to exclude the first log-return of each day. Indeed, we
         look at time series limited to trading days from 9:30am to 4:00pm, so that the first log-return is computed without
@@ -275,6 +282,7 @@ class KurtosisTools:
             'Date': The day of each bar as a string
             'Log-returns': The log-returns
         - normalize (bool): A boolean value indicating whether the log-returns should be normalized on a daily basis or not
+        - filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15
 
         Returns:
         - An numpy.ndarray containing treated log-returns
@@ -286,6 +294,15 @@ class KurtosisTools:
         df.drop(index=list_indices, inplace=True)
         df.drop('Index', axis=1, inplace=True)
         df.reset_index(drop=True, inplace=True)
+        
+        if filter_minutes != 0:
+            # Filter out the returns at the beginning and end of each day
+            daily_start_date = datetime.datetime(year=1900, month=1, day=1, hour=9, minute=30)
+            daily_end_date = datetime.datetime(year=1900, month=1, day=1, hour=16, minute=0)
+            daily_start_date = daily_start_date + dateutil.relativedelta.relativedelta(minutes=filter_minutes + period)
+            daily_end_date = daily_end_date + dateutil.relativedelta.relativedelta(minutes=-filter_minutes)
+            df = df.loc[(df['Hour Datetime'] >= daily_start_date) & (df['Hour Datetime'] <= daily_end_date)].copy()
+
         if normalize:
             dict_daily_averages = df.groupby('Date').mean().to_dict()['Log-returns']
             dict_daily_sd = df.groupby('Date').std().to_dict()['Log-returns']
@@ -310,7 +327,7 @@ class KurtosisTools:
         return kurtosis
 
 
-    def compute_kurtosis_between_two_dates(self, start_date, end_date, normalize):
+    def compute_kurtosis_between_two_dates(self, df, start_date, end_date, normalize, filter_minutes=15):
         """
         Calculate the kurtosis between two dates based on the log-returns from 1-minute period to 60-minute period.
 
@@ -318,63 +335,25 @@ class KurtosisTools:
         - start_date (datetime.datetime): The start date to be considered when calculating the kurtosis
         - end_date (datetime.datetime): The end date to be considered when calculating the kurtosis
         - normalize (bool): A boolean value indicating whether the log-returns should be normalized on a daily basis or not
+        - filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15
 
         Returns:
         - An numpy.ndarray containing the kurtosis for the 60 different periods
         """
-        df_log_returns = self.df.loc[(self.df['Time Datetime'] > start_date) & (self.df['Time Datetime'] <= end_date)].copy()
+        df_log_returns = df.loc[(df['Time Datetime'] > start_date) & (df['Time Datetime'] <= end_date)].copy()
         df_log_returns.reset_index(drop=True, inplace=True)
         list_periods = list(range(1, 61))
         list_excess_kurtosis = []
         for period in list_periods:
             column_name = 'Log-returns {}-min Period'.format(period)
-            df_temp = df_log_returns.loc[df_log_returns[column_name].notnull()][['Date', column_name]].copy()
+            df_temp = df_log_returns.loc[df_log_returns[column_name].notnull()][['Date', 'Hour Datetime', column_name]].copy()
             df_temp.reset_index(drop=True, inplace=True)
             df_temp.rename(columns={column_name: 'Log-returns'}, inplace=True)
-            arr_returns = self.compute_log_returns(df_temp, normalize)
+            arr_returns = self.compute_log_returns(df_temp, period, normalize, filter_minutes=filter_minutes)
             kurtosis = self.calculate_excess_kurtosis(arr_returns)
             list_excess_kurtosis.append(kurtosis)
         
         return np.array(list_excess_kurtosis).reshape((1, 60))
-
-
-    def compute_kurtosis_to_plot(self, start_date, end_date, frequency, normalize):
-        """
-        Calculate the kurtosis over the whole period and as average of subperiods using the method self.compute_kurtosis_between_two_dates
-
-        Parameters:
-        - start_date (datetime.datetime): The start date to be considered when calculating the kurtosis
-        - end_date (datetime.datetime): The end date to be considered when calculating the kurtosis
-        - frequency (int): The number of minutes to be considered for each subperiod
-        - normalize (bool): A boolean value indicating whether the log-returns should be normalized on a daily basis or not
-
-        Returns:
-        - arr_kurtosis_average: A numpy.ndarray containing the kurtosis calculated as average of subperiods
-        - arr_kurtosis_one_period: A numpy.ndarray containing the kurtosis calculated over the whole period
-        """
-        list_dates = []
-        
-        i = self.df.loc[self.df['Time Datetime'] <= end_date].index[-1]
-        current_date = end_date
-        while current_date >= start_date:
-            list_dates.append(current_date)
-            i -= frequency
-            if i < 0:
-                break
-            current_date = self.df.iloc[i]['Time Datetime']
-            current_date = self.df.loc[self.df['Date'] == current_date.strftime('%Y-%m-%d')].iloc[0]['Time Datetime']
-            i = self.df.loc[self.df['Date'] == current_date.strftime('%Y-%m-%d')].iloc[0].name
-        
-        arr_kurtosis_full = np.empty((0, 60))
-        for i in range(len(list_dates) - 1):
-            start_date_temp = list_dates[i+1]
-            end_date_temp = list_dates[i]
-            arr_kurtosis = self.compute_kurtosis_between_two_dates(start_date_temp, end_date_temp, normalize)
-            arr_kurtosis_full = np.concatenate([arr_kurtosis_full, arr_kurtosis], axis=0)
-        
-        arr_kurtosis_average = np.mean(arr_kurtosis_full, axis=0)
-        arr_kurtosis_one_period = self.compute_kurtosis_between_two_dates(start_date, end_date, normalize).reshape(60)
-        return arr_kurtosis_average, arr_kurtosis_one_period
 
 
     @staticmethod
@@ -426,29 +405,50 @@ class KurtosisTools:
         plt.show()
 
 
-    def calculate_and_plot_kurtosis(self, start_date, end_date, frequency):
+    def calculate_and_plot_kurtosis(self, start_date, end_date, frequency, filter_minutes=15):
         """
-        Calculate and plot the kurtosis both with standard returns and normalized returns
+        Calculate and plot the kurtosis both over the whole period and as average of subperiods, and both with standard returns and normalized returns.
 
         Parameters:
         - start_date (datetime.datetime): The start date to be considered when calculating the kurtosis
         - end_date (datetime.datetime): The end date to be considered when calculating the kurtosis
         - frequency (int): The number of minutes to be considered for each subperiod
+        - filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15
 
         Returns:
         - None
         """
-        arr_kurtosis_average_standard, arr_kurtosis_one_period_standard = self.compute_kurtosis_to_plot(start_date, end_date, frequency, False)
-        arr_kurtosis_average_normalized, arr_kurtosis_one_period_normalized = self.compute_kurtosis_to_plot(start_date, end_date, frequency, True)
-        self.plot_kurtosis(arr_kurtosis_average_standard,
-                           arr_kurtosis_one_period_standard,
-                           arr_kurtosis_average_normalized,
-                           arr_kurtosis_one_period_normalized,
-                           start_date,
-                           end_date,
-                           frequency)
+        df = self.df.copy()
+        list_dates = []
+        
+        i = df.loc[df['Time Datetime'] <= end_date].index[-1]
+        current_date = end_date
+        while current_date >= start_date:
+            list_dates.append(current_date)
+            i -= frequency
+            if i < 0:
+                break
+            current_date = df.iloc[i]['Time Datetime']
+            current_date = df.loc[df['Date'] == current_date.strftime('%Y-%m-%d')].iloc[0]['Time Datetime']
+            i = df.loc[df['Date'] == current_date.strftime('%Y-%m-%d')].iloc[0].name
+        
+        arr_kurtosis_full_standard = np.empty((0, 60))
+        arr_kurtosis_full_normalized = np.empty((0, 60))
+        for i in range(len(list_dates) - 1):
+            start_date_temp = list_dates[i+1]
+            end_date_temp = list_dates[i]
+            arr_kurtosis_standard = self.compute_kurtosis_between_two_dates(df, start_date_temp, end_date_temp, False, filter_minutes=filter_minutes)
+            arr_kurtosis_full_standard = np.concatenate([arr_kurtosis_full_standard, arr_kurtosis_standard], axis=0)
+            arr_kurtosis_normalized = self.compute_kurtosis_between_two_dates(df, start_date_temp, end_date_temp, True, filter_minutes=filter_minutes)
+            arr_kurtosis_full_normalized = np.concatenate([arr_kurtosis_full_normalized, arr_kurtosis_normalized], axis=0)
+        
+        arr_kurtosis_average_standard = np.mean(arr_kurtosis_full_standard, axis=0)
+        arr_kurtosis_average_normalized = np.mean(arr_kurtosis_full_normalized, axis=0)
+        arr_kurtosis_one_period_standard = self.compute_kurtosis_between_two_dates(df, start_date, end_date, False, filter_minutes=filter_minutes).reshape(60)
+        arr_kurtosis_one_period_normalized = self.compute_kurtosis_between_two_dates(df, start_date, end_date, True, filter_minutes=filter_minutes).reshape(60)
 
-
+        self.plot_kurtosis(arr_kurtosis_average_standard, arr_kurtosis_one_period_standard, arr_kurtosis_average_normalized,
+            arr_kurtosis_one_period_normalized, start_date, end_date, frequency)
 
 
 
