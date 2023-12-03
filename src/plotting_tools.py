@@ -5,16 +5,7 @@ import scipy
 import dateutil
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
-import statsmodels.api as sm
-from statsmodels.tools.validation import (
-    bool_like,
-    float_like,
-    int_like
-)
 from statsmodels.tools.sm_exceptions import ValueWarning
-from scipy.linalg import toeplitz
-from scipy import stats
-from statsmodels.compat.python import lzip
 
 
 class DataFrameTools:
@@ -56,7 +47,7 @@ class AutocorrelationTools:
         for k in range(1, nlags):
             print('Yule-Walker lag: {}'.format(k))
             r_temp = r[:k + 1]
-            R = toeplitz(r_temp[:-1])
+            R = scipy.linalg.toeplitz(r_temp[:-1])
             try:
                 rho = np.linalg.solve(R, r_temp[1:])
             except np.linalg.LinAlgError as err:
@@ -102,7 +93,7 @@ class AutocorrelationTools:
         """
         variance_returns = returns.var(ddof=0)
         returns -= returns.mean()
-        coef = stats.norm.ppf(1.0 - (alpha / 2.0))
+        coef = scipy.stats.norm.ppf(1.0 - (alpha / 2.0))
 
         acf = np.zeros(nlags + 1, np.float64)
         acf[0] = 1
