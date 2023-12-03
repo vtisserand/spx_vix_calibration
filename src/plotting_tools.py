@@ -2,6 +2,7 @@ import pandas as pd
 import datetime
 import numpy as np
 import scipy
+import string
 import dateutil
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -121,7 +122,7 @@ class AutocorrelationTools:
         return acf, pacf, confint
 
 
-    def plot_acf_pacf(self, acf, pacf, confint, alpha, title="Autocorrelations", upload_path=None):
+    def plot_acf_pacf(self, acf, pacf, confint, start_date, end_date, alpha, upload_path=None):
         """
         Plot the ACF and PACF of the time series.
 
@@ -132,14 +133,15 @@ class AutocorrelationTools:
         confint (numpy.ndarray): The upper bounds of the symmetric confidence intervals for the
             autocorrelations of lags 0, 1, ..., len(confint)-1. That is, the confidence interval of
             autocorrelation of lag k should be given by [-confint[k], confint[k]].
+        start_date (datetime.datetime): The start date to be considered when calculating the autocorrelations.
+        end_date (datetime.datetime): The end date to be considered when calculating the autocorrelations.
         alpha (float): The confidence level for the confidence intervals of the autocorrelations.
-        title (string, optional): The title of the figure. Default is 'Autocorrelations'
-        upload_path (string or None, optional): The path where to save the figure. If not None,
-            the figure is saved according to the input path. If None, the figure is not saved.
+        upload_path (string or None, optional): The path where to save the figure. If not None, the figure
+            is saved according to the input path. If None, the figure is not saved. Default is None.
 
         Returns
         -------
-        None
+        None.
         """
         str_confidence_level = str(np.round(100 * (1 - alpha), decimals=0)).split('.0')[0]
 
@@ -195,17 +197,19 @@ class AutocorrelationTools:
         ax2.plot(x, -confint, color='red', linestyle='--')
 
         handles, labels = ax1.get_legend_handles_labels()
-        fig.legend(handles, labels, bbox_to_anchor=(0.9, 0.985))
-        fig.suptitle(title, fontsize=22, x=0.35, y=0.97)
-        fig.subplots_adjust(hspace=0.2, top=0.85)
-        
+        fig.legend(handles, labels, bbox_to_anchor=(0.68, 0.874))
+        start_date = start_date.strftime('%Y-%m-%d')
+        end_date = end_date.strftime('%Y-%m-%d')
+        fig.suptitle("Autocorrelations from {} to {}".format(start_date, end_date), fontsize=15, y=0.943)
+        fig.subplots_adjust(hspace=0.2, top=0.75)
+
         if upload_path is not None:
             plt.savefig(upload_path)
         plt.show()
 
 
     def plot_autocorrelations(self, start_date, end_date, filter_minutes=15, nlags=20, alpha=0.05, adjust_denominator=False,
-        adjust_daily=False, transformation=lambda x: x, title="Autocorrelations", upload_path=None):
+        adjust_daily=False, transformation=lambda x: x, upload_path=None):
         """
         Construct the series of returns and plot the autocorrelations.
 
@@ -225,17 +229,22 @@ class AutocorrelationTools:
             the larger the lag, the less data we use to compute the autocorrelations. Default is False.
         transformation (func, optional): A function to be applied to the returns, e.g. the absolute value function.
             Default is the identity function.
-        title (string, optional): The title of the figure. Default is 'Autocorrelations'
-        upload_path (string or None, optional): The path where to save the figure. If not None,
-            the figure is saved according to the input path. If None, the figure is not saved.
+        upload_path (string or None, optional): The path where to save the figure. If not None, the figure
+            is saved according to the input path. If None, the figure is not saved. Default is None.
 
         Returns
         -------
-        None
+        None.
         """
         df = self.df.copy()
+        start_date = datetime.datetime(year=start_date.year, month=start_date.month, day=start_date.day, hour=0, minute=0)
+        end_date = datetime.datetime(year=end_date.year, month=end_date.month, day=end_date.day, hour=23, minute=59)
         df = df.loc[(df['Time Datetime'] >= start_date) & (df['Time Datetime'] <= end_date)].copy()
         df.reset_index(drop=True, inplace=True)
+        start_date = df['Time Datetime'].iloc[0]
+        end_date = df['Time Datetime'].iloc[-1]
+        start_date = datetime.datetime(year=start_date.year, month=start_date.month, day=start_date.day, hour=0, minute=0)
+        end_date = datetime.datetime(year=end_date.year, month=end_date.month, day=end_date.day, hour=23, minute=59)
 
         # Filter out the returns at the beginning and end of each day
         daily_start_date = datetime.datetime(year=1900, month=1, day=1, hour=9, minute=30)
@@ -252,26 +261,19 @@ class AutocorrelationTools:
         acf, pacf, confint = self.calculate_autocorrelations(returns, nlags=nlags, alpha=alpha,
             adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)
 
-        self.plot_acf_pacf(acf, pacf, confint, alpha=alpha, title=title, upload_path=upload_path)
+        self.plot_acf_pacf(acf, pacf, confint, start_date, end_date, alpha=alpha, upload_path=upload_path)
 
 
 
 
-
-
-
-
-
-
-
-class KurtosisTools:
+class MomentTools:
 
     def __init__(self, df):
         self.df = df.copy()
 
 
     @staticmethod
-    def compute_log_returns(df, period, normalize, filter_minutes=15):
+    def compute_log_returns(df, period, filter_minutes=15, normalize=False):
         """
         Adjust the log-returns contained in the dataframe df, so as to exclude the first log-return of each day. Indeed, we
         look at time series limited to trading days from 9:30am to 4:00pm, so that the first log-return is computed without
@@ -280,12 +282,18 @@ class KurtosisTools:
         Parameters:
         - df (pandas.core.frame.DataFrame): Dataframe containing the data of interest. Should contain the following columns:
             'Date': The day of each bar as a string
+            'Hour Datetime': The hour of each bar as a datetime.datetime. Should be with format
+                             '%Y-%m-%d %H:%M:%S' with %Y-%m-%d=1900-01-01 (e.g., 1900-01-01 10:00:00)
             'Log-returns': The log-returns
-        - normalize (bool): A boolean value indicating whether the log-returns should be normalized on a daily basis or not
-        - filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15
+        - period (int): The period of the log-returns. For instance, if period is equal to 2, the log-return on 2023-11-24
+          at 10:00 a.m. is considered to have been calculated using the last price on 2023-11-24 at 10:00 a.m. and the
+          last price two minutes prior, i.e. the last price on 2023-11-24 at 9:58 a.m.
+        - filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15.
+        - normalize (bool, optional): A boolean value indicating whether the log-returns should be normalized on a daily
+          basis or not. Default is False.
 
         Returns:
-        - An numpy.ndarray containing treated log-returns
+        - An numpy.ndarray containing treated log-returns.
         """
         # Removing the first log-return of each day (since it was calculated using the price of the previous day)
         df.reset_index(inplace=True)
@@ -312,115 +320,164 @@ class KurtosisTools:
 
 
     @staticmethod
-    def calculate_excess_kurtosis(arr_returns):
+    def calculate_excess_moment(returns, moment=4):
         """
-        Calculate excess kurtosis
-        """
-        mean_returns = np.mean(arr_returns)
-        std_returns = np.std(arr_returns)
-        
-        # Calculate kurtosis
-        numerator = np.mean((arr_returns - mean_returns) ** 4)
-        denominator = std_returns ** 4
-        
-        kurtosis = numerator / denominator - 3
-        return kurtosis
-
-
-    def compute_kurtosis_between_two_dates(self, df, start_date, end_date, normalize, filter_minutes=15):
-        """
-        Calculate the kurtosis between two dates based on the log-returns from 1-minute period to 60-minute period.
+        Calculate the excess moment of order moment of the returns, where 'excess' means that the theoretical
+        moment of order moment of the standard normal distribution is substracted from the empirical moment.
 
         Parameters:
-        - start_date (datetime.datetime): The start date to be considered when calculating the kurtosis
-        - end_date (datetime.datetime): The end date to be considered when calculating the kurtosis
-        - normalize (bool): A boolean value indicating whether the log-returns should be normalized on a daily basis or not
-        - filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15
+        - returns (numpy.ndarray): Array containing the returns.
+        - moment (int, optional): The order of the excess moment to be calculated. Default is 4,
+          which means that by default the function returns the excess kurtosis of the returns.
 
         Returns:
-        - An numpy.ndarray containing the kurtosis for the 60 different periods
+        - excess_moment (float): The excess moment of order moment of the returns.
+        """
+        mean_returns = np.mean(returns)
+        std_returns = np.std(returns)
+        
+        # Calculate empirical moment
+        numerator = np.mean((returns - mean_returns) ** moment)
+        denominator = std_returns ** moment
+        empirical_moment = numerator / denominator
+        
+        # Calculate the theoretical moment of the standard normal distribution
+        if moment % 2:
+            moment_snd = 0
+        else:
+            moment_snd = np.math.factorial(moment) / ((2 ** (moment / 2)) * np.math.factorial(int(moment / 2)))
+
+        excess_moment = empirical_moment - moment_snd
+        return excess_moment
+
+
+    def compute_moment_between_two_dates(self, df, start_date, end_date, moment=4, filter_minutes=15, normalize=False):
+        """
+        Calculate the excess moments of order moment between two dates based on the log-returns from 1-minute period to 60-minute period.
+
+        Parameters:
+        - df (pandas.core.frame.DataFrame): Dataframe containing the data of interest. Should contain the following columns:
+            'Date': The day of each bar as a string
+            'Time Datetime': The time of each bar as a datetime.datetime. Should be with format
+                             '%Y-%m-%d %H:%M:%S' (e.g., 2023-11-24 10:00:00)
+            'Hour Datetime': The hour of each bar as a datetime.datetime. Should be with format
+                             '%Y-%m-%d %H:%M:%S' with %Y-%m-%d=1900-01-01 (e.g., 1900-01-01 10:00:00)
+            'Log-returns 1-min Period': The log-returns calculated with 1-min period
+            'Log-returns 2-min Period': The log-returns calculated with 2-min period
+            ...
+            'Log-returns 60-min Period': The log-returns calculated with 60-min period
+        - start_date (datetime.datetime): The start date to be considered when calculating the excess moments.
+        - end_date (datetime.datetime): The end date to be considered when calculating the excess moments.
+        - moment (int, optional): The order of the excess moments to be calculated. Default is 4,
+          which means that by default the function returns the excess kurtoses of the returns.
+        - filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15.
+        - normalize (bool, optional): A boolean value indicating whether the log-returns should be normalized on a daily
+          basis or not. Default is False.
+
+        Returns:
+        - An numpy.ndarray containing the excess moments for the 60 different periods.
         """
         df_log_returns = df.loc[(df['Time Datetime'] > start_date) & (df['Time Datetime'] <= end_date)].copy()
         df_log_returns.reset_index(drop=True, inplace=True)
         list_periods = list(range(1, 61))
-        list_excess_kurtosis = []
+        list_excess_moments = []
         for period in list_periods:
             column_name = 'Log-returns {}-min Period'.format(period)
             df_temp = df_log_returns.loc[df_log_returns[column_name].notnull()][['Date', 'Hour Datetime', column_name]].copy()
             df_temp.reset_index(drop=True, inplace=True)
             df_temp.rename(columns={column_name: 'Log-returns'}, inplace=True)
-            arr_returns = self.compute_log_returns(df_temp, period, normalize, filter_minutes=filter_minutes)
-            kurtosis = self.calculate_excess_kurtosis(arr_returns)
-            list_excess_kurtosis.append(kurtosis)
+            returns = self.compute_log_returns(df_temp, period, filter_minutes=filter_minutes, normalize=normalize)
+            excess_moment = self.calculate_excess_moment(returns, moment=moment)
+            list_excess_moments.append(excess_moment)
         
-        return np.array(list_excess_kurtosis).reshape((1, 60))
+        return np.array(list_excess_moments).reshape((1, 60))
 
 
     @staticmethod
-    def plot_kurtosis(arr_kurtosis_average_standard,
-                      arr_kurtosis_one_period_standard,
-                      arr_kurtosis_average_normalized,
-                      arr_kurtosis_one_period_normalized,
-                      start_date,
-                      end_date,
-                      frequency):
+    def plot_moments(arr_moment_average_standard, arr_moment_one_period_standard, arr_moment_average_normalized,
+        arr_moment_one_period_normalized, start_date, end_date, frequency, moment=4, upload_path=None):
         """
-        Plot the kurtosis both with standard returns and normalized returns
+        Plot the excess moments of order moment both with standard returns and normalized returns.
 
         Parameters:
-        - arr_kurtosis_average_standard: The kurtosis calculated as average of subperiods using standard returns
-        - arr_kurtosis_one_period_standard: The kurtosis calculated over the whole period using standard returns
-        - arr_kurtosis_average_normalized: The kurtosis calculated as average of subperiods using normalized returns
-        - arr_kurtosis_one_period_normalized: The kurtosis calculated over the whole period using normalized returns
-        - start_date (datetime.datetime): The start date to be considered when calculating the kurtosis
-        - end_date (datetime.datetime): The end date to be considered when calculating the kurtosis
-        - frequency (int): The number of minutes to be considered for each subperiod
+        - arr_moment_average_standard: The excess moments calculated as average of subperiods using standard returns.
+        - arr_moment_one_period_standard: The excess moments calculated over the whole period using standard returns.
+        - arr_moment_average_normalized: The excess moments calculated as average of subperiods using normalized returns.
+        - arr_moment_one_period_normalized: The excess moments calculated over the whole period using normalized returns.
+        - start_date (datetime.datetime): The start date to be considered when calculating the excess moments.
+        - end_date (datetime.datetime): The end date to be considered when calculating the excess moments.
+        - frequency (int): The number of minutes to be considered for each subperiod.
+        - moment (int, optional): The order of the excess moments. Default is 4, which means that
+          by default the excess moments are considered to be the excess kurtoses of the returns.
+        - upload_path (string or None, optional): The path where to save the figure. If not None, the
+          figure is saved according to the input path. If None, the figure is not saved. Default is None.
 
         Returns:
-        - None
+        - None.
         """
+        dict_moment_names = {1: 'mean', 2: 'variance', 3: 'skewness', 4: 'excess kurtosis'}
+        title_moment = string.capwords(dict_moment_names[moment])
+        legend_moment = dict_moment_names[moment].capitalize()
+
         nb_days_per_period = str(np.round(frequency / 391, decimals=0)).split('.0')[0]
         fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(15, 5))
         
-        axs[0].plot(list(range(1, 61)), arr_kurtosis_average_standard, label='Kurtosis computed as an average of {}-day subperiods'.format(nb_days_per_period))
-        axs[0].plot(list(range(1, 61)), arr_kurtosis_one_period_standard, label='Kurtosis computed over the whole period')
+        axs[0].plot(list(range(1, 61)), arr_moment_average_standard, label='{} computed as an average of {}-day subperiods'.format(legend_moment, nb_days_per_period))
+        axs[0].plot(list(range(1, 61)), arr_moment_one_period_standard, label='{} computed over the whole period'.format(legend_moment))
         axs[0].set_xlabel('Period (in minutes)')
-        axs[0].set_ylabel('Excess kurtosis')
+        axs[0].set_ylabel(legend_moment)
         axs[0].axhline(y=0, color='red', linestyle='--')
-        axs[0].set_title("Excess Kurtosis of Standard Returns")
+        axs[0].set_title("{} of Standard Returns".format(title_moment))
         
-        axs[1].plot(list(range(1, 61)), arr_kurtosis_average_normalized)
-        axs[1].plot(list(range(1, 61)), arr_kurtosis_one_period_normalized)
+        axs[1].plot(list(range(1, 61)), arr_moment_average_normalized)
+        axs[1].plot(list(range(1, 61)), arr_moment_one_period_normalized)
         axs[1].set_xlabel('Period (in minutes)')
-        axs[1].set_ylabel('Excess kurtosis')
+        axs[1].set_ylabel(legend_moment)
         axs[1].axhline(y=0, color='red', linestyle='--')
-        axs[1].set_title("Excess Kurtosis of Daily Normalized Returns")
+        axs[1].set_title("{} of Daily Normalized Returns".format(title_moment))
         
         handles, labels = axs[0].get_legend_handles_labels()
-        fig.legend(handles, labels, bbox_to_anchor=(0.648, 0.87))
+        fig.legend(handles, labels, bbox_to_anchor=(0.674, 0.87))
         start_date = start_date.strftime('%Y-%m-%d')
         end_date = end_date.strftime('%Y-%m-%d')
-        fig.suptitle("Kurtosis as a function of timescale from {} to {}".format(start_date, end_date), fontsize=22, y=0.943)
+        fig.suptitle("{} as a function of timescale from {} to {}".format(legend_moment, start_date, end_date), fontsize=22, y=0.943)
         fig.subplots_adjust(top=0.68)
+
+        if upload_path is not None:
+            plt.savefig(upload_path)
         plt.show()
 
 
-    def calculate_and_plot_kurtosis(self, start_date, end_date, frequency, filter_minutes=15):
+    def calculate_and_plot_moments(self, start_date, end_date, frequency, moment=4, filter_minutes=15, upload_path=None):
         """
-        Calculate and plot the kurtosis both over the whole period and as average of subperiods, and both with standard returns and normalized returns.
+        Calculate and plot the excess moments of order moment both over the whole period and as average of
+        subperiods, and both with standard returns and normalized returns. 'Excess' means that the theoretical
+        moment of order moment of the standard normal distribution is substracted from the empirical moments.
 
         Parameters:
-        - start_date (datetime.datetime): The start date to be considered when calculating the kurtosis
-        - end_date (datetime.datetime): The end date to be considered when calculating the kurtosis
-        - frequency (int): The number of minutes to be considered for each subperiod
-        - filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15
+        - start_date (datetime.datetime): The start date to be considered when calculating the excess moments.
+        - end_date (datetime.datetime): The end date to be considered when calculating the excess moments.
+        - frequency (int): The number of minutes to be considered for each subperiod.
+        - moment (int, optional): The order of the excess moments to be calculated and plotted. Default is 4,
+          which means that by default the function plots the excess kurtoses of the returns.
+        - filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15.
+        - upload_path (string or None, optional): The path where to save the figure. If not None, the
+          figure is saved according to the input path. If None, the figure is not saved. Default is None.
 
         Returns:
-        - None
+        - None.
         """
         df = self.df.copy()
+        start_date = datetime.datetime(year=start_date.year, month=start_date.month, day=start_date.day, hour=0, minute=0)
+        end_date = datetime.datetime(year=end_date.year, month=end_date.month, day=end_date.day, hour=23, minute=59)
+        df = df.loc[(df['Time Datetime'] >= start_date) & (df['Time Datetime'] <= end_date)].copy()
+        df.reset_index(drop=True, inplace=True)
+        start_date = df['Time Datetime'].iloc[0]
+        end_date = df['Time Datetime'].iloc[-1]
+        start_date = datetime.datetime(year=start_date.year, month=start_date.month, day=start_date.day, hour=0, minute=0)
+        end_date = datetime.datetime(year=end_date.year, month=end_date.month, day=end_date.day, hour=23, minute=59)
+
         list_dates = []
-        
         i = df.loc[df['Time Datetime'] <= end_date].index[-1]
         current_date = end_date
         while current_date >= start_date:
@@ -432,24 +489,22 @@ class KurtosisTools:
             current_date = df.loc[df['Date'] == current_date.strftime('%Y-%m-%d')].iloc[0]['Time Datetime']
             i = df.loc[df['Date'] == current_date.strftime('%Y-%m-%d')].iloc[0].name
         
-        arr_kurtosis_full_standard = np.empty((0, 60))
-        arr_kurtosis_full_normalized = np.empty((0, 60))
+        arr_moment_full_standard = np.empty((0, 60))
+        arr_moment_full_normalized = np.empty((0, 60))
         for i in range(len(list_dates) - 1):
             start_date_temp = list_dates[i+1]
             end_date_temp = list_dates[i]
-            arr_kurtosis_standard = self.compute_kurtosis_between_two_dates(df, start_date_temp, end_date_temp, False, filter_minutes=filter_minutes)
-            arr_kurtosis_full_standard = np.concatenate([arr_kurtosis_full_standard, arr_kurtosis_standard], axis=0)
-            arr_kurtosis_normalized = self.compute_kurtosis_between_two_dates(df, start_date_temp, end_date_temp, True, filter_minutes=filter_minutes)
-            arr_kurtosis_full_normalized = np.concatenate([arr_kurtosis_full_normalized, arr_kurtosis_normalized], axis=0)
+            arr_moment_standard = self.compute_moment_between_two_dates(df, start_date_temp, end_date_temp, moment=moment, filter_minutes=filter_minutes, normalize=False)
+            arr_moment_full_standard = np.concatenate([arr_moment_full_standard, arr_moment_standard], axis=0)
+            arr_moment_normalized = self.compute_moment_between_two_dates(df, start_date_temp, end_date_temp, moment=moment, filter_minutes=filter_minutes, normalize=True)
+            arr_moment_full_normalized = np.concatenate([arr_moment_full_normalized, arr_moment_normalized], axis=0)
         
-        arr_kurtosis_average_standard = np.mean(arr_kurtosis_full_standard, axis=0)
-        arr_kurtosis_average_normalized = np.mean(arr_kurtosis_full_normalized, axis=0)
-        arr_kurtosis_one_period_standard = self.compute_kurtosis_between_two_dates(df, start_date, end_date, False, filter_minutes=filter_minutes).reshape(60)
-        arr_kurtosis_one_period_normalized = self.compute_kurtosis_between_two_dates(df, start_date, end_date, True, filter_minutes=filter_minutes).reshape(60)
+        arr_moment_average_standard = np.mean(arr_moment_full_standard, axis=0)
+        arr_moment_average_normalized = np.mean(arr_moment_full_normalized, axis=0)
+        arr_moment_one_period_standard = self.compute_moment_between_two_dates(df, start_date, end_date, moment=moment, filter_minutes=filter_minutes, normalize=False).reshape(60)
+        arr_moment_one_period_normalized = self.compute_moment_between_two_dates(df, start_date, end_date, moment=moment, filter_minutes=filter_minutes, normalize=True).reshape(60)
 
-        self.plot_kurtosis(arr_kurtosis_average_standard, arr_kurtosis_one_period_standard, arr_kurtosis_average_normalized,
-            arr_kurtosis_one_period_normalized, start_date, end_date, frequency)
-
-
+        self.plot_moments(arr_moment_average_standard, arr_moment_one_period_standard, arr_moment_average_normalized,
+            arr_moment_one_period_normalized, start_date, end_date, frequency, moment=moment, upload_path=upload_path)
 
 
