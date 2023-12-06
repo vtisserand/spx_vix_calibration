@@ -7,6 +7,9 @@ import dateutil
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from statsmodels.tools.sm_exceptions import ValueWarning
+from statsmodels.compat.numpy import lstsq
+from statsmodels.tools.tools import add_constant
+from statsmodels.tsa.tsatools import lagmat
 
 
 class DataFrameTools:
@@ -24,16 +27,71 @@ class DataFrameTools:
 
 
 
-class AutocorrelationTools:
+class CrossCorrelationTools:
 
     def __init__(self, df):
         self.df = df.copy()
 
 
+    
+    def calculate_cross_correlation_ols(self, x, y, xlags, ylags, x0, y0, k, adjust_denominator=False, adjust_daily=False):
+
+        xparams = lstsq(xlags[k - 1:, :k], x0[k - 1:], rcond=None)[0]
+        xresiduals = x0[k - 1:] - xlags[k - 1:, :k] @ xparams
+        xresiduals = pd.Series(data=xresiduals.reshape(xresiduals.shape[0]), index=x.iloc[k - 1:].index, name=x.name)
+
+        yparams = lstsq(ylags[k - 1:, :k], y0[k - 1:], rcond=None)[0]
+        yresiduals = y0[k - 1:] - ylags[k - 1:, :k] @ yparams
+        yresiduals = pd.Series(data=yresiduals.reshape(yresiduals.shape[0]), index=y.iloc[k - 1:].index, name=y.name)
+
+        sd_xresiduals = xresiduals.std(ddof=0)
+        sd_yresiduals = yresiduals.std(ddof=0)
+        xresiduals -= xresiduals.mean()
+        yresiduals -= yresiduals.mean()
+
+        pccf = self.calculate_cross_covariances(xresiduals, yresiduals, sd_xresiduals, sd_yresiduals,
+            k, confint_coef=None, adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)[1]
+
+        return pccf
+
+
+    def cross_correlations_ols(self, x, y, cross_correlation, nlags, adjust_denominator=False, adjust_daily=False, negative_lags=False):
+        """
+        Calculate partial autocorrelations via OLS.
+
+        """
+
+        xlags, x0 = lagmat(x, nlags, original="sep")
+        xlags = add_constant(xlags)
+        ylags, y0 = lagmat(y, nlags, original="sep")
+        ylags = add_constant(ylags)
+
+        pccf = np.empty(nlags + 1)
+        pccf[0] = cross_correlation
+        for k in range(1, nlags + 1):
+            print('PCCF lag: {}'.format(k))
+            ccf = self.calculate_cross_correlation_ols(x, y, xlags, ylags, x0, y0, k,
+                adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)
+            pccf[k] = ccf
+        
+        if negative_lags:
+            pccf_neg = np.zeros(nlags, np.float64)
+            for k in range(1, nlags + 1):
+                print('PCCF lag: {}'.format(-k))
+                ccf = self.calculate_cross_correlation_ols(y, x, ylags, xlags, y0, x0, k,
+                    adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)
+                pccf_neg[k - 1] = ccf
+            pccf_neg = np.flip(pccf_neg)
+            pccf = np.concatenate([pccf_neg, pccf])
+
+        return pccf
+
+
+
     @staticmethod
     def pacf_yule_walker(r):
         """
-        Compute the partial autocorrelation estimates using Yule Walker equations.
+        Compute the partial autocorrelations estimates using Yule Walker equations.
 
         Parameters
         ----------
@@ -63,79 +121,136 @@ class AutocorrelationTools:
         return pacf
 
 
-    def calculate_autocorrelations(self, returns, nlags=20, alpha=0.05, adjust_denominator=False, adjust_daily=False):
+    @staticmethod
+    def calculate_cross_covariances(x, y, sd_x, sd_y, k, confint_coef=None, adjust_denominator=False, adjust_daily=False):
+        df = x.iloc[:-k].reset_index().rename(columns={x.name: 'x-values'})
+        df_lagged = y.iloc[k:].reset_index().rename(columns={'Time': 'Time Lagged', y.name: 'y-values'})
+        df = pd.concat([df, df_lagged], axis=1)
+        if adjust_daily:
+            df = df.loc[df.apply(lambda row: row['Time'].split(' ')[0] == row['Time Lagged'].split(' ')[0], axis=1)].copy()
+        arr_corr_left = np.array(df['x-values'].to_list())
+        arr_corr_right = np.array(df['y-values'].to_list())
+        n = len(arr_corr_left) + k
+        r = (1 / (n - k * adjust_denominator)) * np.correlate(arr_corr_left, arr_corr_right)[0]
+        ccf = r / (sd_x * sd_y)
+        if confint_coef is None:
+            return r, ccf
+        confint = confint_coef * np.sqrt(1.0 / n)
+        return r, ccf, confint
+
+
+
+    def calculate_autocorrelations(self, x, y, nlags=20, alpha=0.05, x_equals_y=True, adjust_denominator=False, adjust_daily=False, negative_lags=False):
         """
-        Compute the autocorrelations and partial autocorrelations.
+        Compute the autocorrelations and partial cross-correlations between x and y (or autocorrelations if x and y are identical).
 
         Parameters
         ----------
-        returns (pandas.core.series.Series): A pandas Series containing the returns.
-            The index should be named 'Time' and contain the times associated with the returns as strings
-            with format '%Y-%m-%d %H:%M:%S', while the Series itself should be named 'Log-returns'.
-        nlags (int, optional): The number of lags to return autocorrelation for. Default is 20.
-        alpha (float, optional): The confidence level for the confidence intervals of the autocorrelations.
+        x (pandas.core.series.Series): A pandas Series. The index should be named 'Time' and contain the
+            times associated with the x-values as strings with format '%Y-%m-%d %H:%M:%S'.
+        y (pandas.core.series.Series): A pandas Series. The index should be named 'Time' and contain the
+            times associated with the y-values as strings with format '%Y-%m-%d %H:%M:%S'.
+        nlags (int, optional): The number of lags to return cross-correlations for. Default is 20.
+        alpha (float, optional): The confidence level for the confidence intervals of the cross-correlations.
             For instance if alpha=.05, 95% confidence intervals are returned where the standard deviation
             is computed according to 1/sqrt(number of observations). Default is 0.05.
-        adjust_denominator (bool, optional): Determines denominator in estimate of autocorrelation function (ACF)
+        x_equals_y (bool, optional): If True, the time series x and y are considered to be equal, to that we
+            compute the autocorrelations by solving the Yule-Walker equations. If False, they are considered
+            not to be equal, and we compute the cross-correlations using OLS regressions. Default is True.
+            Caution! If x and y are not equal but x_equals_y=True, then the output partial cross-correlations
+            will be inconsistent and unreliable.
+        adjust_denominator (bool, optional): Determines denominator in estimate of cross-correlation function
             at lag k. If False, the denominator is n=len(returns), if True the denominator is n-k. Default is False.
-        adjust_daily (bool, optional): If True, the autocovariances used in estimating the
-            autocorrelations are computed by multiplying returns on same days only. This means that
-            the larger the lag, the less data we use to compute the autocorrelations. Default is False.
+        adjust_daily (bool, optional): If True, the cross-covariances used in estimating the
+            cross-correlations are computed by multiplying returns on same days only. This implies that
+            the larger the lag, the less data we use to compute the cross-correlations. Default is False.
 
         Returns
         -------
-        acf (numpy.ndarray): The autocorrelations for lags 0, 1, ..., nlags computed using
-            Pearson autocorrelation coefficients. Shape (nlags+1,).
-        pacf (numpy.ndarray): The partial autocorrelations for lags 0, 1, ..., nlags
-            computed using Yule Walker equations. Shape (nlags+1,).
+        ccf (numpy.ndarray): The cross-correlations for lags 0, 1, ..., nlags computed using Pearson correlation
+            coefficients. The cross-correlations are calculated by lagging the time series y: That is, when
+            the lag is 1, the cross-correlation is an estimate of Cov(X_t, Y_{t+1}) / (SD(X)SD(Y)). Shape (nlags+1,).
+        pccf (numpy.ndarray): The partial cross-correlations for lags 0, 1, ..., nlags. Shape (nlags+1,).
+            The partial-cross correlations are calculated:
+                - By solving the Yule Walker equations if x and y are identical,
+                - Using OLS regressions otherwise.
         confint (numpy.ndarray): The upper bounds of the symmetric confidence intervals for the
-            autocorrelations of lags 0, 1, ..., nlags. That is, the confidence interval of
-            autocorrelation of lag k is given by [-confint[k], confint[k]]. Shape (nlags+1,).
+            cross-correlations of lags 0, 1, ..., nlags. That is, the confidence interval of
+            cross-correlation of lag k is given by [-confint[k], confint[k]]. Shape (nlags+1,).
         """
-        variance_returns = returns.var(ddof=0)
-        returns -= returns.mean()
-        coef = scipy.stats.norm.ppf(1.0 - (alpha / 2.0))
+        sd_x = x.std(ddof=0)
+        sd_y = y.std(ddof=0)
+        x -= x.mean()
+        y -= y.mean()
+        n = len(x)
+        cross_covariance = (1 / n) * np.correlate(x, y)[0]
+        cross_correlation = cross_covariance / (sd_x * sd_y)
+        confint_coef = scipy.stats.norm.ppf(1.0 - (alpha / 2.0))
 
-        acf = np.zeros(nlags + 1, np.float64)
-        acf[0] = 1
+        ccf = np.zeros(nlags + 1, np.float64)
+        ccf[0] = cross_correlation
         r = np.zeros(nlags + 1, np.float64)
-        r[0] = variance_returns
+        r[0] = cross_covariance
         confint = np.zeros(nlags + 1, np.float64)
-        confint[0] = 1
+        confint[0] = cross_correlation
         for k in range(1, nlags + 1):
-            df = returns.iloc[:-k].reset_index()
-            df_lagged = returns.iloc[k:].reset_index().rename(columns={'Time': 'Time Lagged', 'Log-returns': 'Log-returns Lagged'})
-            df = pd.concat([df, df_lagged], axis=1)
-            if adjust_daily:
-                df = df.loc[df.apply(lambda row: row['Time'].split(' ')[0] == row['Time Lagged'].split(' ')[0], axis=1)].copy()
-            arr_corr_left = np.array(df['Log-returns'].to_list())
-            arr_corr_right = np.array(df['Log-returns Lagged'].to_list())
-            n = len(arr_corr_left) + k
-            confint[k] = coef * np.sqrt(1.0 / n)
-            r[k] = (1 / (n - k * adjust_denominator)) * np.correlate(arr_corr_left, arr_corr_right)[0]
-            acf[k] = r[k] / variance_returns
+            r_one_lag, ccf_one_lag, confint_one_lag = self.calculate_cross_covariances(x, y, sd_x, sd_y,
+                k, confint_coef=confint_coef, adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)
+            r[k] = r_one_lag
+            ccf[k] = ccf_one_lag
+            confint[k] = confint_one_lag
             print('Construction lag: {}, nb datapoints={}'.format(k, n))
+        if (not negative_lags) or x_equals_y:
+            pccf = self.pacf_yule_walker(r)
+
+        if negative_lags and x_equals_y:
+            ccf_neg = np.flip(ccf)[:-1]
+            pccf_neg = np.flip(pccf)[:-1]
+            confint_neg = np.flip(confint)[:-1]
+            ccf = np.concatenate([ccf_neg, ccf])
+            pccf = np.concatenate([pccf_neg, pccf])
+            confint = np.concatenate([confint_neg, confint])
+        elif negative_lags and (not x_equals_y):
+            ccf_neg = np.zeros(nlags, np.float64)
+            confint_neg = np.zeros(nlags, np.float64)
+            for k in range(1, nlags + 1):
+                ccf_one_lag, confint_one_lag = self.calculate_cross_covariances(y, x, sd_y, sd_x, k,
+                    confint_coef=confint_coef, adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)[1:]
+                ccf_neg[k - 1] = ccf_one_lag
+                confint_neg[k - 1] = confint_one_lag
+                print('Construction lag: {}, nb datapoints={}'.format(-k, n))
+            ccf_neg = np.flip(ccf_neg)
+            confint_neg = np.flip(confint_neg)
+            ccf = np.concatenate([ccf_neg, ccf])
+            confint = np.concatenate([confint_neg, confint])
+            pccf = self.cross_correlations_ols(x, y, cross_correlation, nlags,
+                adjust_denominator=adjust_denominator, adjust_daily=adjust_daily, negative_lags=negative_lags)
         
         print('__________________')
+        #pccf = self.cross_correlations_ols(x, y, cross_correlation, nlags, adjust_denominator=adjust_denominator, adjust_daily=adjust_daily, negative_lags=negative_lags)
+        #pd.Series(pccf).to_excel('E:\\OneDrive\\Documents\\MIASHS 2022-10\\ENSAE_2023-2024\\Calibration VIX-SPX\\Rapport\\Validation_ols\\Test_PCCF_OLS2.xlsx')
         
-        pacf = self.pacf_yule_walker(r)
-        return acf, pacf, confint
+        return ccf, pccf, confint
 
 
-    def plot_acf_pacf(self, acf, pacf, confint, start_date, end_date, alpha, upload_path=None):
+    def plot_ccf_pccf(self, ccf, pccf, confint, start_date, end_date, alpha, x_equals_y=True, negative_lags=False, upload_path=None):
         """
-        Plot the ACF and PACF of the time series.
+        Plot the CCF and PCCF of the time series.
 
         Parameters
         ----------
-        acf (numpy.ndarray): The autocorrelations for lags 0, 1, ..., len(acf)-1.
-        pacf (numpy.ndarray): The partial autocorrelations for lags 0, 1, ..., len(pacf)-1.
+        ccf (numpy.ndarray): The cross-correlations for lags 0, 1, ..., len(ccf)-1.
+        pccf (numpy.ndarray): The partial cross-correlations for lags 0, 1, ..., len(pccf)-1.
         confint (numpy.ndarray): The upper bounds of the symmetric confidence intervals for the
-            autocorrelations of lags 0, 1, ..., len(confint)-1. That is, the confidence interval of
-            autocorrelation of lag k should be given by [-confint[k], confint[k]].
-        start_date (datetime.datetime): The start date to be considered when calculating the autocorrelations.
-        end_date (datetime.datetime): The end date to be considered when calculating the autocorrelations.
-        alpha (float): The confidence level for the confidence intervals of the autocorrelations.
+            cross-correlations of lags 0, 1, ..., len(confint)-1. That is, the confidence interval of
+            cross-correlation of lag k should be given by [-confint[k], confint[k]].
+        start_date (datetime.datetime): The start date to be considered when calculating the cross-correlations.
+        end_date (datetime.datetime): The end date to be considered when calculating the cross-correlations.
+        alpha (float): The confidence level for the confidence intervals of the cross-correlations.
+        x_equals_y (bool, optional): If True, the correlations passed as inputs are considered to be autocorrelations
+            of one time series instead of cross-correlations of two distinct time series. Otherwise, the correlations
+            are considered to be cross-correlations of two distinct time series. This parameter is only used to adjust
+            the y-labels and the suptitle of the figure. Default is True.
         upload_path (string or None, optional): The path where to save the figure. If not None, the figure
             is saved according to the input path. If None, the figure is not saved. Default is None.
 
@@ -143,55 +258,75 @@ class AutocorrelationTools:
         -------
         None.
         """
-        str_confidence_level = str(np.round(100 * (1 - alpha), decimals=0)).split('.0')[0]
-
-        acf = acf[1:]
-        pacf = pacf[1:]
-        confint = confint[1:]
-        nlags = len(acf)
-        x = np.array(range(1, nlags+1))
-
-        fig, [ax1, ax2] = plt.subplots(2, 1, sharex=True, figsize=(7, 4))
+        y_margin = 0.005
         max_nlags_stem = 50
-        x_margin = max(0.5, (len(acf) + 1) / 60)
-        y_margin = 0.01
-        max_abs_value = max(abs(min(min(acf), min(pacf))), abs(max(max(acf), max(pacf))))
-        max_y_value = max_abs_value + y_margin
-        min_y_value = -max_abs_value - y_margin
-
         color = '#1f77b4'
         color_stemlines = color
         color_markerline = color
+        str_confidence_level = str(np.round(100 * (1 - alpha), decimals=0)).split('.0')[0]
+        ccf_ylabel = 'ACF' if x_equals_y else 'CCF'
+        pccf_ylabel = 'PACF' if x_equals_y else 'PCCF'
+        suptitle = 'Autocorrelations' if x_equals_y else 'Cross-Correlations'
 
-        # Plot ACF using stem plot
+        if negative_lags:
+            nlags = len(ccf)
+            x = np.array(range(1, int((nlags + 1) / 2)))
+            x = np.concatenate([-np.flip(x), np.array([0]), x])
+            ccf_temp = np.concatenate([ccf[:int((nlags - 1) / 2)], ccf[int((nlags - 1) / 2) + 1:]])
+            pccf_temp = np.concatenate([pccf[:int((nlags - 1) / 2)], pccf[int((nlags - 1) / 2) + 1:]])
+            confint_temp = np.concatenate([confint[:int((nlags - 1) / 2)], confint[int((nlags - 1) / 2) + 1:]])
+            max_abs_value = max(abs(min(min(ccf_temp), min(pccf_temp), min(confint_temp))), abs(max(max(ccf_temp), max(pccf_temp), max(confint_temp))))
+            max_value_lag_0 = max(abs(ccf[int((nlags - 1) / 2)]), abs(pccf[int((nlags - 1) / 2)]), abs(confint[int((nlags - 1) / 2)]))
+            if max_value_lag_0 <= 0.99:
+                max_abs_value = max(max_abs_value, max_value_lag_0)
+            confint[int((nlags - 1) / 2)] = (confint[int((nlags - 1) / 2) - 1] + confint[int((nlags - 1) / 2) + 1]) / 2
+            max_y_value = max_abs_value + y_margin
+            min_y_value = -max_abs_value - y_margin
+        else:
+            ccf = ccf[1:]
+            pccf = pccf[1:]
+            confint = confint[1:]
+            nlags = len(ccf)
+            x = np.array(range(1, nlags+1))
+            max_abs_value = max(abs(min(min(ccf), min(pccf), min(confint))), abs(max(max(ccf), max(pccf), max(confint))))
+            max_y_value = max_abs_value + y_margin
+            min_y_value = -max_abs_value - y_margin
+        x_margin = max(0.5, (len(ccf) + 1) / 60)
+
+        fig, [ax1, ax2] = plt.subplots(2, 1, sharex=True, figsize=(7, 4))
+
+        # Plot CCF using stem plot
         ax1.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
         if nlags <= max_nlags_stem:
-            markerline, stemlines, baseline = ax1.stem(x, acf, linefmt='-', basefmt=' ')
+            markerline, stemlines, baseline = ax1.stem(x, ccf, linefmt='-', basefmt=' ')
             plt.setp(stemlines, 'color', color_stemlines) # Set stem line color
             plt.setp(markerline, 'color', color_markerline) # Set marker line color
             ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
-            odd_x_ticks = np.arange(1, nlags + 1, 2)
-            ax1.set_xticks(odd_x_ticks)
-            ax1.set_xticklabels(odd_x_ticks)
+            if negative_lags:
+                x_ticks = np.array([i for i in x if not i % 2])
+            else:
+                x_ticks = np.array([i for i in x if i % 2])
+            ax1.set_xticks(x_ticks)
+            ax1.set_xticklabels(x_ticks)
         else:
-            ax1.scatter(x, acf, color=color, marker='o', s=10)
-        ax1.set_xlim(1 - x_margin, max(x) + x_margin)
-        ax1.set_ylabel('ACF')
+            ax1.scatter(x, ccf, color=color, marker='o', s=10)
+        ax1.set_xlim(min(x) - x_margin, max(x) + x_margin)
+        ax1.set_ylabel(ccf_ylabel)
         ax1.set_ylim(min_y_value, max_y_value)
         ax1.plot(x, confint, color='red', linestyle='--', label="{}% confidence interval".format(str_confidence_level))
         ax1.plot(x, -confint, color='red', linestyle='--')
 
-        # Plot PACF using stem plot
+        # Plot PCCF using stem plot
         ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
         if nlags <= max_nlags_stem:
-            markerline, stemlines, baseline = ax2.stem(x, pacf, linefmt='-', basefmt=' ')
+            markerline, stemlines, baseline = ax2.stem(x, pccf, linefmt='-', basefmt=' ')
             plt.setp(stemlines, 'color', color_stemlines) # Set stem line color
             plt.setp(markerline, 'color', color_markerline) # Set marker line color
         else:
-            ax2.scatter(x, pacf, color=color, marker='o', s=10)
+            ax2.scatter(x, pccf, color=color, marker='o', s=10)
         ax2.set_xlabel('Lag (in minutes)')
-        ax2.set_xlim(1 - x_margin, max(x) + x_margin)
-        ax2.set_ylabel('PACF')
+        ax2.set_xlim(min(x) - x_margin, max(x) + x_margin)
+        ax2.set_ylabel(pccf_ylabel)
         ax2.set_ylim(min_y_value, max_y_value)
         ax2.plot(x, confint, color='red', linestyle='--')
         ax2.plot(x, -confint, color='red', linestyle='--')
@@ -200,7 +335,7 @@ class AutocorrelationTools:
         fig.legend(handles, labels, bbox_to_anchor=(0.68, 0.874))
         start_date = start_date.strftime('%Y-%m-%d')
         end_date = end_date.strftime('%Y-%m-%d')
-        fig.suptitle("Autocorrelations from {} to {}".format(start_date, end_date), fontsize=15, y=0.943)
+        fig.suptitle("{} from {} to {}".format(suptitle, start_date, end_date), fontsize=15, y=0.943)
         fig.subplots_adjust(hspace=0.2, top=0.75)
 
         if upload_path is not None:
@@ -209,24 +344,24 @@ class AutocorrelationTools:
 
 
     def plot_autocorrelations(self, start_date, end_date, filter_minutes=15, nlags=20, alpha=0.05, adjust_denominator=False,
-        adjust_daily=False, transformation=lambda x: x, upload_path=None):
+        adjust_daily=False, transformation=lambda x: x, negative_lags=False, upload_path=None):
         """
         Construct the series of returns and plot the autocorrelations.
 
         Parameters
         ----------
-        start_date (datetime.datetime): The start date to be considered when calculating the autocorrelations.
-        end_date (datetime.datetime): The end date to be considered when calculating the autocorrelations.
+        start_date (datetime.datetime): The start date to be considered when calculating the cross-correlations.
+        end_date (datetime.datetime): The end date to be considered when calculating the cross-correlations.
         filter_minutes (int, optional): The number of minutes to be ignored at the beginning and end of each day. Default is 15
-        nlags (int, optional): The number of lags to plot autocorrelation for. Default is 20.
-        alpha (float, optional): The confidence level for the confidence intervals of the autocorrelations.
+        nlags (int, optional): The number of lags to plot cross-correlation for. Default is 20.
+        alpha (float, optional): The confidence level for the confidence intervals of the cross-correlations.
             For instance if alpha=.05, 95% confidence intervals are plotted where the standard deviation
             is computed according to 1/sqrt(number of observations). Default is 0.05.
-        adjust_denominator (bool, optional): Determines denominator in estimate of autocorrelation function (ACF)
+        adjust_denominator (bool, optional): Determines denominator in estimate of cross-correlation function (CCF)
             at lag k. If False, the denominator is n=len(returns), if True the denominator is n-k. Default is False.
-        adjust_daily (bool, optional): If True, the autocovariances used in estimating the
-            autocorrelations are computed by multiplying returns on same days only. This means that
-            the larger the lag, the less data we use to compute the autocorrelations. Default is False.
+        adjust_daily (bool, optional): If True, the cross-covariances used in estimating the
+            cross-correlations are computed by multiplying returns on same days only. This implies that
+            the larger the lag, the less data we use to compute the cross-correlations. Default is False.
         transformation (func, optional): A function to be applied to the returns, e.g. the absolute value function.
             Default is the identity function.
         upload_path (string or None, optional): The path where to save the figure. If not None, the figure
@@ -254,14 +389,68 @@ class AutocorrelationTools:
         df = df.loc[(df['Hour Datetime'] >= daily_start_date) & (df['Hour Datetime'] <= daily_end_date)].copy()
 
         df.set_index('Time', inplace=True)
-        returns = df['Log-returns 1-min Period']
-        returns.name = 'Log-returns'
-        returns = transformation(returns)
+        x = df['Log-returns 1-min Period']
+        x.name = 'x-values'
+        #x = np.abs(x)
+        x = transformation(x)
 
-        acf, pacf, confint = self.calculate_autocorrelations(returns, nlags=nlags, alpha=alpha,
-            adjust_denominator=adjust_denominator, adjust_daily=adjust_daily)
+        y = df['Log-returns 1-min Period']
+        y.name = 'y-values'
+        y = y ** 2
+        #y = transformation(y)
 
-        self.plot_acf_pacf(acf, pacf, confint, start_date, end_date, alpha=alpha, upload_path=upload_path)
+        x_equals_y = x.equals(y)
+        ccf, pccf, confint = self.calculate_autocorrelations(x, y, nlags=nlags, alpha=alpha, x_equals_y=x_equals_y,
+            adjust_denominator=adjust_denominator, adjust_daily=adjust_daily, negative_lags=negative_lags)
+
+        self.plot_ccf_pccf(ccf, pccf, confint, start_date, end_date, alpha=alpha,
+            x_equals_y=x_equals_y, negative_lags=negative_lags, upload_path=upload_path)
+
+        # Voir s'il ne faut pas ajuster pacf_yuler
+        # Changer les autocorrelations en cross-corrélations dans les noms de variables et commentaires
+        # Booléen pour savoir si on veut des lags négatifs ou non
+        # Vérifier qu'on est toujours cohérent avec statsmodels
+        # Voir si on fait plusieurs classes pour chacun des faits stylisés, qui appellent la classe CrossCorrel
+        # ou si on fait plusieurs fonctions dans la classe CrossCorrel, une pour chacune des graphiques
+        # (CCF des rnedements, des rendements en valeur absolue...)
+        # Voir comment traiter la transformation: left and right transformation, ??
+        # Mettre à jour les docstrings avec les arguments supplémentaires: negative_lags notamment
+        # Problème: cross-correl OLS très loin de Yule avec absolute returns
+        # Changer les noms de variables qui sont des pacf
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -506,5 +695,4 @@ class MomentTools:
 
         self.plot_moments(arr_moment_average_standard, arr_moment_one_period_standard, arr_moment_average_normalized,
             arr_moment_one_period_normalized, start_date, end_date, frequency, moment=moment, upload_path=upload_path)
-
 
