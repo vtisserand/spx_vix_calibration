@@ -152,20 +152,38 @@ class LeverageEffect(StylizedFact):
 
 
 class ZumbachEffect(StylizedFact):
-    def __init__(self, lag=1, threshold=0.5):
+    def __init__(self, prices: npt.NDArray | int, lag: int=1, threshold: float=0.5):
+        self.prices = prices
         self.lag = lag
         self.threshold = threshold
 
-    def is_verified(self, prices):
+    def compute_cross_correlation(self, prices):
         returns = np.diff(np.log(prices))
+        vols = np.std(returns, ddof=1)
 
-        # Calculate Zumbach effect as the predictive power of past volatility on future returns
-        past_volatility = np.std(returns[: -self.lag])
-        future_returns = returns[self.lag :]
+        correlation = np.correlate(
+            returns[: -self.lag], vols[self.lag :], mode="full"
+        )
 
-        correlation = np.corrcoef(past_volatility, future_returns)[0, 1]
+        # Trim to actually get cross-correlation
+        correlation = correlation[len(correlation) // 2 - 1:]
 
-        return correlation > self.threshold
+        leverage_effect_corr = correlation 
+        return leverage_effect_corr
+    
+    def plot(self, window: int=200, fit=FitType.NONE):
+        corr = self.compute_cross_correlation(self.prices)[:window]
+        time_axis = np.arange(len(corr))
+
+        # Plot the correlation values
+        plt.plot(time_axis, corr, label='Correlation')
+        plt.title('Cross-Correlation of\n Zumbach effect')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+    def is_verified(self, prices):
+        pass
 
 
 def stylized_fact_pipeline(model_name, model_params, num_steps, time_step, checkers):
