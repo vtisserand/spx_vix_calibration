@@ -1,5 +1,19 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
+import numpy.typing as npt
+
+class FitType:
+    NONE = 'none'
+    EXP = 'exp'
+    POWER = 'power'
+
+
+def exponential_fit(x, a, b, c):
+    return a * np.exp(-b * x) + c
+
+def power_fit(x, a, b, c):
+    return a * x**b + c
 
 class StylizedFact(ABC):
     @abstractmethod
@@ -15,6 +29,7 @@ class StylizedFact(ABC):
         """
         pass
 
+
 # We follow formulas to derive statistics highlighted in: https://arxiv.org/pdf/2311.07738.pdf
 # with nice plots when appropriate.
 
@@ -26,12 +41,14 @@ class ReturnsAutocorrelation(StylizedFact):
 
     def is_verified(self, prices):
         returns = np.diff(np.log(prices))
-        arr_corr_left = returns[:-self.lag] - np.mean(returns)
-        arr_corr_right = returns[self.lag:] - np.mean(returns)
-        autocovariance = (1 / returns.shape[0]) * np.correlate(arr_corr_left, arr_corr_right)
-        autocorrelation = autocovariance / np.var(returns)
+        autocorrelation = np.correlate(
+            returns[: -self.lag], returns[self.lag :], mode="full"
+        )
+        autocorrelation /= np.max(autocorrelation)  # Normalize
 
-        return autocorrelation > self.threshold
+        returns_autocorr = autocorrelation[len(autocorrelation) // 2]
+        return returns_autocorr > self.threshold
+
 
 class HeavyTailsKurtosis(StylizedFact):
     def __init__(self, lag=1, threshold=0.5):
@@ -52,6 +69,7 @@ class HeavyTailsKurtosis(StylizedFact):
 
         return kurtosis > self.threshold
 
+
 class GainLossSkew(StylizedFact):
     def __init__(self, lag=1, threshold=0.5):
         self.lag = lag
@@ -60,16 +78,17 @@ class GainLossSkew(StylizedFact):
     def is_verified(self, prices):
         returns = np.diff(np.log(prices))
 
-        mean_returns = np.mean(returns[:-self.lag])
-        std_returns = np.std(returns[:-self.lag])
+        mean_returns = np.mean(returns[: -self.lag])
+        std_returns = np.std(returns[: -self.lag])
 
         # Calculate skewness
-        numerator = np.mean((returns[self.lag:] - mean_returns) ** 3)
-        denominator = std_returns ** 3
+        numerator = np.mean((returns[self.lag :] - mean_returns) ** 3)
+        denominator = std_returns**3
 
         skewness = numerator / denominator
 
         return np.abs(skewness) > self.threshold
+
 
 class VolatilityClustering(StylizedFact):
     def __init__(self, lag=1, threshold=0.5):
@@ -81,31 +100,56 @@ class VolatilityClustering(StylizedFact):
         absolute_returns = np.abs(returns)
 
         # Calculate linear autocorrelation of absolute returns
-        autocorrelation = np.correlate(absolute_returns[:-self.lag], absolute_returns[self.lag:], mode='full')
+        autocorrelation = np.correlate(
+            absolute_returns[: -self.lag], absolute_returns[self.lag :], mode="full"
+        )
         autocorrelation /= np.max(autocorrelation)  # Normalize
 
         volatility_clustering_corr = autocorrelation[len(autocorrelation) // 2]
         return volatility_clustering_corr > self.threshold
-    
+
     def plot():
         pass
 
+
 class LeverageEffect(StylizedFact):
-    def __init__(self, lag=1, threshold=0.5):
+    def __init__(self, prices: npt.NDArray | int, lag: int=1, threshold: float=0.5):
+        self.prices = prices
         self.lag = lag
         self.threshold = threshold
 
-    def is_verified(self, prices):
+    def compute_cross_correlation(self, prices):
         returns = np.diff(np.log(prices))
         absolute_returns = np.abs(returns)
 
         # Calculate correlation between squared absolute returns and returns at lag
-        squared_absolute_returns = absolute_returns ** 2
-        correlation = np.correlate(squared_absolute_returns[:-self.lag], returns[self.lag:], mode='full')
-        correlation /= np.max(correlation)  # Normalize
+        squared_absolute_returns = absolute_returns**2
+        correlation = np.correlate(
+            squared_absolute_returns[: -self.lag], returns[self.lag :], mode="full"
+        )
 
-        leverage_effect_corr = correlation[len(correlation) // 2]
-        return leverage_effect_corr > self.threshold
+        # Trim to actually get cross-correlation
+        correlation = correlation[len(correlation) // 2 - 1:]
+
+        normalization = np.correlate(squared_absolute_returns, squared_absolute_returns)  # Normalize
+
+        leverage_effect_corr = correlation / normalization 
+        return leverage_effect_corr
+    
+    def plot(self, window: int=200, fit=FitType.NONE):
+        corr = self.compute_cross_correlation(self.prices)[:window]
+        time_axis = np.arange(len(corr))
+
+        # Plot the correlation values
+        plt.plot(time_axis, corr, label='Correlation')
+        plt.title('Cross-Correlation of squared absolute returns and returns\n Leverage effect')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+    def is_verified(self, prices):
+        pass
+
 
 class ZumbachEffect(StylizedFact):
     def __init__(self, lag=1, threshold=0.5):
@@ -116,8 +160,8 @@ class ZumbachEffect(StylizedFact):
         returns = np.diff(np.log(prices))
 
         # Calculate Zumbach effect as the predictive power of past volatility on future returns
-        past_volatility = np.std(returns[:-self.lag])
-        future_returns = returns[self.lag:]
+        past_volatility = np.std(returns[: -self.lag])
+        future_returns = returns[self.lag :]
 
         correlation = np.corrcoef(past_volatility, future_returns)[0, 1]
 
