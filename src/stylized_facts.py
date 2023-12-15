@@ -70,7 +70,7 @@ class ReturnsAutocorrelation(StylizedFact):
         returns = np.diff(np.log(self.prices))
         x = returns
         y = returns
-        fig = plot_crosscorrelations(x, y, nlags=self.lag, alpha=0.05,
+        fig, _ = plot_crosscorrelations(x, y, nlags=self.lag, alpha=0.05,
             adjust_denominator=False, negative_lags=False)
         
         if return_obj:
@@ -180,25 +180,40 @@ class GainLossSkew(StylizedFact):
 
 
 class VolatilityClustering(StylizedFact):
-    def __init__(self, lag=1, threshold=0.5):
+
+    def __init__(self, prices: np.ndarray | int, lag: int=100, threshold: float=0.5):
+        self.prices = prices
         self.lag = lag
         self.threshold = threshold
+    
+    def plot(self, fit_type: FitType=FitType.NONE, alpha=0.05, return_obj: bool=False):
+        returns = np.diff(np.log(self.prices))
+        x = np.abs(returns)
+        fig, _ = plot_crosscorrelations(x, x, nlags=self.lag, alpha=alpha)
 
-    def is_verified(self, prices):
+        if return_obj:
+            return fig
+        else:
+            fig.show()
+        
+    def is_verified(self, prices, adjust_denominator=False):
         returns = np.diff(np.log(prices))
-        absolute_returns = np.abs(returns)
+        x = np.abs(returns)
+        y = x
+        sd_x = x.std(ddof=0)
+        sd_y = y.std(ddof=0)
+        x -= x.mean()
+        y -= y.mean()
 
-        # Calculate linear autocorrelation of absolute returns
-        autocorrelation = np.correlate(
-            absolute_returns[: -self.lag], absolute_returns[self.lag :], mode="full"
-        )
-        autocorrelation /= np.max(autocorrelation)  # Normalize
+        arr_corr_left = x[:-self.lag]
+        arr_corr_right = y[self.lag:]
+        n = len(arr_corr_left) + self.lag
+        r = (1 / (n - self.lag * adjust_denominator)) * np.correlate(
+            arr_corr_left, arr_corr_right
+        )[0]
+        ccf = r / (sd_x * sd_y)
 
-        volatility_clustering_corr = autocorrelation[len(autocorrelation) // 2]
-        return volatility_clustering_corr > self.threshold
-
-    def plot():
-        pass
+        return ccf > self.threshold
 
 
 class LeverageEffect(StylizedFact):
@@ -251,7 +266,7 @@ class LeverageEffect(StylizedFact):
 
             equation_str = f"Exponential Fit: $-{fit_coefficients[0]:.4f} * \exp{{(-x/{fit_coefficients[1]:.4f})}}$"
             ax.plot(
-                time_axis, fit_curve, linestyle="--", color="red", label=equation_str
+                time_axis, fit_curve, linestyle="--", color="crimson", label=equation_str
             )
 
         if show_confidence_bounds:
@@ -259,10 +274,10 @@ class LeverageEffect(StylizedFact):
 
         if tra:
             corr_tra = correlation[:len(correlation) // 2 + self.lag -1][::-1][:window]
-            ax.scatter(time_axis, corr_tra, label="Correlation time reversal", color='green', s=10, alpha=0.4)
+            ax.scatter(time_axis, corr_tra, label="Correlation time reversal", color='seagreen', s=10, alpha=0.4)
 
         # Plot the correlation values
-        ax.scatter(time_axis, corr, label="Correlation", color='blue', s=10)
+        ax.scatter(time_axis, corr, label="Correlation", color='royalblue', s=10)
         ax.set_title(
             "Cross-Correlation of squared absolute returns and returns\n Leverage effect"
         )
@@ -380,6 +395,7 @@ def generate_pdf(prices, name: str='combined_plots'):
         return_acf = ReturnsAutocorrelation(prices)
         kurtosis = HeavyTailsKurtosis(prices)
         skewness = GainLossSkew(prices)
+        vol_cluster = VolatilityClustering(prices)
         leverage_effect = LeverageEffect(prices)
         zumbach_effect = ZumbachEffect(prices)
 
@@ -389,6 +405,8 @@ def generate_pdf(prices, name: str='combined_plots'):
         LOGGER.info("Kurtosis plot generated.")
         skewness_plot = skewness.plot(return_obj=True)
         LOGGER.info("Skewness plot generated.")
+        vol_cluster_plot = vol_cluster.plot(return_obj=True)
+        LOGGER.info("Volatility clustering plot generated.")
         leverage_plot = leverage_effect.plot(tra=True, fit_type=FitType.EXP, return_obj=True)
         LOGGER.info("Leverage effect plot generated.")
         zumbach_plot = zumbach_effect.plot(tra=True, return_obj=True)
@@ -398,6 +416,7 @@ def generate_pdf(prices, name: str='combined_plots'):
         returns_acf_plot.savefig(pdf, format='pdf')
         kurtosis_plot.savefig(pdf, format='pdf')
         skewness_plot.savefig(pdf, format='pdf')
+        vol_cluster_plot.savefig(pdf, format='pdf')
         leverage_plot.savefig(pdf, format='pdf')
         zumbach_plot.savefig(pdf, format='pdf')
 

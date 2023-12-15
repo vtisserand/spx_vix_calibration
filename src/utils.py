@@ -349,7 +349,7 @@ def plot_ccf_pccf(
     )
     fig.subplots_adjust(hspace=0.2, top=0.75)
 
-    return fig
+    return fig, [ax1, ax2]
 
 
 
@@ -374,7 +374,7 @@ def plot_crosscorrelations(
         negative_lags=negative_lags,
     )
 
-    fig = plot_ccf_pccf(
+    fig, axes = plot_ccf_pccf(
         ccf,
         pccf,
         confint,
@@ -383,4 +383,4 @@ def plot_crosscorrelations(
         negative_lags=negative_lags,
     )
 
-    return fig
+    return fig, axes
