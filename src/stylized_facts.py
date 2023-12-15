@@ -1,7 +1,10 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
+
+import matplotlib.pyplot as plt
+import numpy as np
 import numpy.typing as npt
+from scipy.optimize import curve_fit
+
 
 class FitType:
     NONE = 'none'
@@ -113,7 +116,7 @@ class VolatilityClustering(StylizedFact):
 
 
 class LeverageEffect(StylizedFact):
-    def __init__(self, prices: npt.NDArray | int, lag: int=1, threshold: float=0.5):
+    def __init__(self, prices: npt.NDArray | list, lag: int=1, threshold: float=0.5):
         self.prices = prices
         self.lag = lag
         self.threshold = threshold
@@ -136,10 +139,20 @@ class LeverageEffect(StylizedFact):
         leverage_effect_corr = correlation / normalization 
         return leverage_effect_corr
     
-    def plot(self, window: int=200, fit=FitType.NONE):
+    def plot(self, window: int=200, fit_type: FitType=FitType.NONE):
         corr = self.compute_cross_correlation(self.prices)[:window]
         time_axis = np.arange(len(corr))
 
+        # Plot the optional fit
+        if fit_type==FitType.EXP:
+            fit_coefficients, _ = curve_fit(exponential_fit, np.arange(len(corr)), corr)
+            
+            # Generate the fitted curve
+            fit_curve = exponential_fit(time_axis, *fit_coefficients)
+
+            equation_str = f'Exponential Fit: $-{fit_coefficients[0]:.4f} * \exp{{(-x/{fit_coefficients[1]:.4f})}}$'
+            plt.plot(time_axis, fit_curve, linestyle='--', color='red', label=equation_str)
+            
         # Plot the correlation values
         plt.plot(time_axis, corr, label='Correlation')
         plt.title('Cross-Correlation of squared absolute returns and returns\n Leverage effect')
