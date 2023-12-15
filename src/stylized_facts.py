@@ -2,8 +2,9 @@ from abc import ABC, abstractmethod
 
 import matplotlib.pyplot as plt
 import numpy as np
-import numpy.typing as npt
+import pandas as pd
 from scipy.optimize import curve_fit
+from scipy import signal
 
 
 class FitType:
@@ -116,31 +117,31 @@ class VolatilityClustering(StylizedFact):
 
 
 class LeverageEffect(StylizedFact):
-    def __init__(self, prices: npt.NDArray | list, lag: int=1, threshold: float=0.5):
+    def __init__(self, prices: np.ndarray | list, lag: int=10, threshold: float=0.5):
         self.prices = prices
         self.lag = lag
         self.threshold = threshold
 
-    def compute_cross_correlation(self, prices):
-        returns = np.diff(np.log(prices))
+    def compute_cross_correlation(self):
+        returns = np.diff(np.log(self.prices))
         absolute_returns = np.abs(returns)
 
         # Calculate correlation between squared absolute returns and returns at lag
         squared_absolute_returns = absolute_returns**2
-        correlation = np.correlate(
-            squared_absolute_returns[: -self.lag], returns[self.lag :], mode="full"
+        correlation = signal.correlate(
+            squared_absolute_returns[: -self.lag], returns[self.lag :], mode="same"
         )
 
         # Trim to actually get cross-correlation
-        correlation = correlation[len(correlation) // 2 - 1:]
+        correlation = correlation[len(correlation) // 2 + self.lag:]
 
         normalization = np.correlate(squared_absolute_returns, squared_absolute_returns)  # Normalize
 
         leverage_effect_corr = correlation / normalization 
         return leverage_effect_corr
     
-    def plot(self, window: int=200, fit_type: FitType=FitType.NONE):
-        corr = self.compute_cross_correlation(self.prices)[:window]
+    def plot(self, window: int=200, fit_type: FitType=FitType.NONE, show_confidence_bounds: bool=False):
+        corr = self.compute_cross_correlation()[:window]
         time_axis = np.arange(len(corr))
 
         # Plot the optional fit
@@ -153,6 +154,9 @@ class LeverageEffect(StylizedFact):
             equation_str = f'Exponential Fit: $-{fit_coefficients[0]:.4f} * \exp{{(-x/{fit_coefficients[1]:.4f})}}$'
             plt.plot(time_axis, fit_curve, linestyle='--', color='red', label=equation_str)
             
+        if show_confidence_bounds:
+            pass
+        
         # Plot the correlation values
         plt.plot(time_axis, corr, label='Correlation')
         plt.title('Cross-Correlation of squared absolute returns and returns\n Leverage effect')
@@ -160,23 +164,25 @@ class LeverageEffect(StylizedFact):
         plt.grid(True)
         plt.show()
 
-    def is_verified(self, prices):
+    def is_verified(self):
         pass
 
 
 class ZumbachEffect(StylizedFact):
-    def __init__(self, prices: npt.NDArray | int, lag: int=1, threshold: float=0.5):
+    def __init__(self, prices: np.ndarray | int, lag: int=1, threshold: float=0.5):
         self.prices = prices
         self.lag = lag
         self.threshold = threshold
 
-    def compute_cross_correlation(self, prices):
-        returns = np.diff(np.log(prices))
-        vols = np.std(returns, ddof=1)
+    def compute_cross_correlation(self):
+        returns = np.diff(np.log(self.prices))
+        ts = pd.Series(returns)
+        vols = ts.rolling(window=25).std().to_numpy()*(258**0.5)
 
-        correlation = np.correlate(
+        correlation = signal.correlate(
             returns[: -self.lag], vols[self.lag :], mode="full"
         )
+        return correlation
 
         # Trim to actually get cross-correlation
         correlation = correlation[len(correlation) // 2 - 1:]
@@ -185,7 +191,7 @@ class ZumbachEffect(StylizedFact):
         return leverage_effect_corr
     
     def plot(self, window: int=200, fit=FitType.NONE):
-        corr = self.compute_cross_correlation(self.prices)[:window]
+        corr = self.compute_cross_correlation()[:window]
         time_axis = np.arange(len(corr))
 
         # Plot the correlation values
