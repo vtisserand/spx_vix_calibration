@@ -10,7 +10,7 @@ from rich.logging import RichHandler
 from scipy import signal
 from scipy.optimize import curve_fit
 
-from utils import plot_crosscorrelations
+from utils import plot_crosscorrelations, extract_data_from_axes
 
 LOGGER = logging.getLogger("rich")
 
@@ -70,9 +70,8 @@ class ReturnsAutocorrelation(StylizedFact):
         returns = np.diff(np.log(self.prices))
         x = returns
         y = returns
-        fig, _ = plot_crosscorrelations(x, y, nlags=self.lag, alpha=0.05,
-            adjust_denominator=False, negative_lags=False)
-        
+        fig = plot_crosscorrelations(x, y, nlags=self.lag, alpha=0.05)
+
         if return_obj:
             return fig
         else:
@@ -117,9 +116,9 @@ class HeavyTailsKurtosis(StylizedFact):
         list_kurtosis = self.compute_list_kurtosis(period=self.period)
 
         fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(7, 5))
-        ax.plot(list(range(1, 31)), list_kurtosis, label="Excess Kurtosis")
+        ax.plot(list(range(1, self.period + 1)), list_kurtosis, color='royalblue', label="Excess Kurtosis")
         ax.set_xlabel("Period")
-        ax.axhline(y=0, color="red", linestyle="--")
+        ax.axhline(y=0, color="crimson", linestyle="--")
         ax.set_title("Excess kurtosis of returns")
         ax.grid(which='both', linestyle='--', linewidth=0.5)
 
@@ -167,9 +166,9 @@ class GainLossSkew(StylizedFact):
         list_skewness = self.compute_list_skewness(period=self.period)
 
         fig, ax = plt.subplots(nrows=1, ncols=1)
-        ax.plot(list(range(1, self.period+1)), list_skewness, label="Skewness")
+        ax.plot(list(range(1, self.period+1)), list_skewness, color='royalblue', label="Skewness")
         ax.set_xlabel("Period")
-        ax.axhline(y=0, color="red", linestyle="--")
+        ax.axhline(y=0, color="crimson", linestyle="--")
         ax.set_title("Skewness of returns")
         ax.grid(which='both', linestyle='--', linewidth=0.5)
 
@@ -189,8 +188,34 @@ class VolatilityClustering(StylizedFact):
     def plot(self, fit_type: FitType=FitType.NONE, alpha=0.05, return_obj: bool=False):
         returns = np.diff(np.log(self.prices))
         x = np.abs(returns)
-        fig, _ = plot_crosscorrelations(x, x, nlags=self.lag, alpha=alpha)
+        fig = plot_crosscorrelations(x, x, nlags=self.lag, alpha=alpha)
 
+        ax_acf, ax_pacf = fig.get_axes()[0], fig.get_axes()[1]
+        acf, pacf = extract_data_from_axes(ax_acf), extract_data_from_axes(ax_pacf)
+        time_axis = np.arange(len(acf))
+
+        # Plot the optional fit
+        if fit_type == FitType.POWER:
+            acf_fit_coefficients, _ = curve_fit(power_fit, np.arange(len(acf)), acf)
+
+            # Generate the fitted curve
+            fit_acf_curve = power_fit(time_axis, *acf_fit_coefficients)
+
+            equation_str = f"Power Fit: $-{acf_fit_coefficients[0]:.4f} * \exp{{(-x/{acf_fit_coefficients[1]:.4f})}}$"
+            ax_acf.plot(
+                time_axis, fit_acf_curve, linestyle="--", color="crimson", label=equation_str
+            )
+
+            pacf_fit_coefficients, _ = curve_fit(power_fit, np.arange(len(pacf)), pacf)
+
+            # Generate the fitted curve
+            fit_pacf_curve = power_fit(time_axis, *pacf_fit_coefficients)
+
+            equation_str = f"Power Fit: $-{pacf_fit_coefficients[0]:.4f} * \exp{{(-x/{pacf_fit_coefficients[1]:.4f})}}$"
+            ax_pacf.plot(
+                time_axis, fit_pacf_curve, linestyle="--", color="crimson", label=equation_str
+            )
+            
         if return_obj:
             return fig
         else:
@@ -274,7 +299,7 @@ class LeverageEffect(StylizedFact):
 
         if tra:
             corr_tra = correlation[:len(correlation) // 2 + self.lag -1][::-1][:window]
-            ax.scatter(time_axis, corr_tra, label="Correlation time reversal", color='seagreen', s=10, alpha=0.4)
+            ax.scatter(np.arange(len(corr_tra)), corr_tra, label="Correlation time reversal", color='seagreen', s=10, alpha=0.4)
 
         # Plot the correlation values
         ax.scatter(time_axis, corr, label="Correlation", color='royalblue', s=10)
@@ -328,7 +353,7 @@ class ZumbachEffect(StylizedFact):
 
         if tra:
             corr_tra = correlation[:len(correlation) // 2 + self.lag -1][::-1][:window]
-            ax.plot(time_axis, corr_tra, label="Correlation time reversal", color='green', alpha=0.4)
+            ax.plot(np.arange(len(corr_tra)), corr_tra, label="Correlation time reversal", color='green', alpha=0.4)
 
         # Plot the correlation values
         ax.plot(time_axis, corr, label="Correlation", color='blue')

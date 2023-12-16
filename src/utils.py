@@ -247,7 +247,7 @@ def plot_ccf_pccf(
 
     y_margin = 0.05
     max_nlags_stem = 50
-    color = "#1f77b4"
+    color = "royalblue"
     color_stemlines = color
     color_markerline = color
     str_confidence_level = str(np.round(100 * (1 - alpha), decimals=0)).split(".0")[0]
@@ -317,8 +317,8 @@ def plot_ccf_pccf(
         ax1.set_xticklabels(x_ticks)
     else:
         ax1.scatter(x, ccf, color=color, marker="o", s=10)
-    ax1.hlines(confint, x_min, x_max, color='red', linestyle='--', linewidth=0.8, label="{}% confidence interval".format(str_confidence_level))
-    ax1.hlines(-confint, x_min, x_max, color='red', linestyle='--', linewidth=0.8)
+    ax1.hlines(confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6, label="{}% confidence interval".format(str_confidence_level))
+    ax1.hlines(-confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6)
     ax1.set_xlim(min(x) - x_margin, max(x) + x_margin)
     ax1.set_ylabel(ccf_ylabel)
     ax1.set_ylim(min_y_value, max_y_value)
@@ -333,8 +333,8 @@ def plot_ccf_pccf(
         plt.setp(markerline, "color", color_markerline)  # Set marker line color
     else:
         ax2.scatter(x, pccf, color=color, marker="o", s=10)
-    ax2.hlines(confint, x_min, x_max, color='red', linestyle='--', linewidth=0.8)
-    ax2.hlines(-confint, x_min, x_max, color='red', linestyle='--', linewidth=0.8)
+    ax2.hlines(confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6)
+    ax2.hlines(-confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6)
     ax2.set_xlabel("Lag")
     ax2.set_xlim(x_min, x_max)
     ax2.set_ylabel(pccf_ylabel)
@@ -349,9 +349,7 @@ def plot_ccf_pccf(
     )
     fig.subplots_adjust(hspace=0.2, top=0.75)
 
-    return fig, [ax1, ax2]
-
-
+    return fig
 
 
 def plot_crosscorrelations(
@@ -374,7 +372,7 @@ def plot_crosscorrelations(
         negative_lags=negative_lags,
     )
 
-    fig, axes = plot_ccf_pccf(
+    fig = plot_ccf_pccf(
         ccf,
         pccf,
         confint,
@@ -383,4 +381,19 @@ def plot_crosscorrelations(
         negative_lags=negative_lags,
     )
 
-    return fig, axes
+    return fig
+
+
+def extract_data_from_axes(ax):
+    # Extracting data from the resulting figure
+    scatter_plots = [artist for artist in ax.get_children()]
+
+    for _, scatter_plot in enumerate(scatter_plots, start=1):
+        try:
+            offsets = scatter_plot.get_offsets()
+            y_data = offsets[:, 1]  # Get y coordinates
+
+        except AttributeError:
+            pass
+    return y_data
+

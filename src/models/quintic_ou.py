@@ -125,7 +125,13 @@ class QuinticOU(BaseModel):
         return St
 
     def generate_trajectory(self, num_steps, time_step):
-        pass
+        tt = self.get_dates(num_steps, time_step)
+        w1 = self.generate_brownian_trajectories(num_steps)
+
+        Xt = self.generate_ou_trajectories(tt, w1)
+        volatility = self.generate_vol_trajectory(tt, Xt)
+        St = self.generate_underlying_trajectories(time_step, w1, volatility)
+        return St
 
     def plot_trajectories(self, num_steps: int, time_step: int, num_sims: int = 1):
         tt = self.get_dates(num_steps, time_step)
