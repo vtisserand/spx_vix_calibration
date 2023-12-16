@@ -3,7 +3,7 @@ import scipy
 from scipy import interpolate
 import matplotlib.pyplot as plt
 
-from base_model import BaseModel
+from .base_model import BaseModel
 
 
 class QuinticOU(BaseModel):

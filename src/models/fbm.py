@@ -1,6 +1,6 @@
 import numpy as np
 
-from base_model import BaseModel
+from .base_model import BaseModel
 
 class FractionalBrownianMotion(BaseModel):
     def __init__(self, initial_price: float, volatility: float, hurst_parameter: float, drift: float=0.0):
