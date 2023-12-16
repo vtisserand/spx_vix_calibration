@@ -30,10 +30,10 @@ class SABR_Model(BaseModel):
         dw = np.sqrt(dt)*np.random.normal(0, 1, size=n_steps)
 
         dz = np.zeros_like(dw)
-        dz[:, 0] = dw[:, 0]
+        dz[0] = dw[0]
         for i in range(1, n_steps):
             # Update the correlation
-            dz[:, i] = self.rho * dz[:, i-1] + np.sqrt(1 - self.rho**2) * dw[:, i]
+            dz[i] = self.rho * dz[i-1] + np.sqrt(1 - self.rho**2) * dw[i]
         
         F = np.zeros(n_steps)
         vol = np.zeros_like(F) 

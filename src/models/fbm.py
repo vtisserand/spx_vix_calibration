@@ -8,7 +8,7 @@ class FractionalBrownianMotion(BaseModel):
         self.hurst_parameter = hurst_parameter
         self.volatility = volatility
 
-    def generate_trajectory(self, num_steps: int, time_step: float):
+    def generate_paths(self, num_steps: int, time_step: float):
         prices = [self.initial_price]
         price = self.initial_price
 
