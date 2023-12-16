@@ -3,16 +3,16 @@ import numpy as np
 
 
 class BaseModel(ABC):
-    def __init__(self, initial_price):
+    def __init__(self, initial_price: float=100):
         self.initial_price = initial_price
 
     @abstractmethod
-    def generate_trajectory(self, num_steps, time_step):
+    def generate_paths(self, num_steps, time_step):
         pass
 
 
 class GeometricBrownianMotion(BaseModel):
-    def generate_trajectory(self, volatility, drift, num_steps, time_step):
+    def generate_paths(self, volatility, drift, num_steps, time_step):
         self.volatility = volatility
         self.drift = drift
         prices = [self.initial_price]
