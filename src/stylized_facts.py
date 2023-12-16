@@ -10,7 +10,15 @@ from rich.logging import RichHandler
 from scipy import signal
 from scipy.optimize import curve_fit
 
+import arch
+from arch.unitroot import ADF
+from arch.unitroot import DFGLS
+from arch.unitroot import PhillipsPerron
+from arch.unitroot import KPSS
+
 from utils import plot_crosscorrelations, extract_data_from_axes
+
+
 
 LOGGER = logging.getLogger("rich")
 
@@ -239,6 +247,153 @@ class VolatilityClustering(StylizedFact):
         ccf = r / (sd_x * sd_y)
 
         return ccf > self.threshold
+
+
+
+
+
+class VolatilityPersistence(StylizedFact):
+
+    def __init__(self, prices: np.ndarray | int, lag: int=100, threshold: float=0.5):
+        self.prices = prices
+        self.lag = lag
+        self.threshold = threshold
+
+    @staticmethod
+    def retrieve_test_stats(test, alpha=0.05, decimals=3):
+        null_hypothesis = test.null_hypothesis
+        p_value = test.pvalue
+        if null_hypothesis == 'The process contains a unit root.':
+            stationarity = p_value < alpha
+        else:
+            stationarity = p_value >= alpha
+        
+        dict_stats = {'Test Statistic': np.round(test.stat, decimals=decimals),
+                      'P-Value': np.round(p_value, decimals=decimals),
+                      'Lags': test.lags,
+                      'Stationarity 5%?': stationarity}
+        return dict_stats
+
+    def compute_tests(self, returns, alpha=0.05, decimals=3):
+
+        adf = ADF(returns)
+        dfgls = DFGLS(returns)
+        pp = PhillipsPerron(returns)
+        kpss = KPSS(returns)
+        adf_ct = ADF(returns, trend="ct")
+        dfgls_ct = DFGLS(returns, trend="ct")
+        pp_ct = PhillipsPerron(returns, trend="ct")
+        kpss_ct = KPSS(returns, trend="ct")
+        
+        dict_tests = {'ADF': adf,
+                    'DFGLS': dfgls,
+                    'Phillips-Perron': pp,
+                    'KPSS': kpss,
+                    'ADF (constant + time trend)': adf_ct,
+                    'DFGLS (constant + time trend)': dfgls_ct,
+                    'Phillips-Perron (constant + time trend)': pp_ct,
+                    'KPSS (constant + time trend)': kpss_ct}
+        
+        df_stats = pd.DataFrame()
+        for test in dict_tests.keys():
+            dict_stats = self.retrieve_test_stats(dict_tests[test], alpha=alpha, decimals=decimals)
+            row = pd.DataFrame(data=dict_stats, index=[test])
+            df_stats = pd.concat([df_stats, row], axis=0)
+
+        return df_stats
+
+    @staticmethod
+    def fit_garch(returns):
+        garch = arch.arch_model(returns, vol='garch', p=1, o=0, q=1)
+        garch_fitted = garch.fit()
+
+        return garch_fitted
+    
+    def compute_results(self, returns, alpha=0.05, decimals=3):
+        garch = self.fit_garch(returns)
+        df_garch = pd.concat([garch.params,
+                            garch.std_err,
+                            garch.tvalues,
+                            garch.pvalues,
+                            garch.conf_int()], axis=1)
+        df_garch = df_garch.round(decimals=decimals)
+        df_garch = df_garch.iloc[1:]
+        df_garch = df_garch.reset_index().rename(columns={'index': 'coefs'})
+        df_garch.loc[1, 'coefs'] = 'alpha'
+        df_garch.loc[2, 'coefs'] = 'beta'
+        
+        df_stats = self.compute_tests(returns, alpha=alpha, decimals=decimals)
+        df_stats = df_stats.reset_index().rename(columns={'index': 'Test Type'})
+        
+        return df_garch, df_stats
+
+    def plot(self, alpha=0.05, decimals=3, return_obj: bool=False):
+        returns = np.diff(np.log(self.prices))
+        df_garch, df_stats = self.compute_results(returns, alpha=alpha, decimals=decimals)
+        
+        fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(12, 4))
+        
+        axs[0].axis('tight')
+        axs[0].axis('off')
+        col_widths = [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]
+        the_table = axs[0].table(cellText=df_garch.values, colLabels=df_garch.columns, loc='center', colWidths=col_widths)
+        the_table.auto_set_font_size(False)
+        the_table.set_fontsize(10)
+        axs[0].set_title('GARCH(1, 1) Volatility Model')
+        
+        axs[1].axis('tight')
+        axs[1].axis('off')
+        col_widths = [0.4, 0.3, 0.12, 0.12, 0.2]
+        the_table = axs[1].table(cellText=df_stats.values, colLabels=df_stats.columns, loc='center', colWidths=col_widths)
+        the_table.auto_set_font_size(False)
+        the_table.set_fontsize(10)
+        axs[1].set_title('Return Unit-Root Tests')
+
+        if return_obj:
+            return fig
+        else:
+            fig.show()
+
+    def is_verified(self):
+        returns = np.diff(np.log(self.prices))
+        garch = self.fit_garch(returns)
+        persistence = garch.params[-2:].sum()
+
+        return persistence > self.threshold
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class LeverageEffect(StylizedFact):
