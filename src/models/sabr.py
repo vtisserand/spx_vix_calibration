@@ -17,11 +17,11 @@ class SABR_Model(BaseModel):
         maturity: float = 1,
     ):
         sabr_lognormal = Hagan2002LognormalSABR(f=forward_price, beta=1.0, t=maturity)
-        alpha, rho, vvol = sabr_lognormal.fit(strikes, vols)
-        self.alpha, self.rho, self.vvol = alpha, rho, vvol
+        vol_init, rho, alpha = sabr_lognormal.fit(strikes, vols)
+        self.vol_init, self.rho, self.alpha = vol_init, rho, alpha
 
-    def set_parameters(self, alpha: float=0.25, rho: float=-0.6, vvol: float=2.5):
-        self.alpha, self.rho, self.vvol = alpha, rho, vvol
+    def set_parameters(self, vol_init: float=0.25, rho: float=-0.6, alpha: float=2.5):
+        self.vol_init, self.rho, self.alpha = vol_init, rho, alpha
 
     def generate_paths(self, n_steps, length):
         # Discretization grid
@@ -39,10 +39,10 @@ class SABR_Model(BaseModel):
         vol = np.zeros_like(F) 
     
         F[0] = self.initial_price
-        vol[0] = self.alpha
+        vol[0] = self.vol_init
 
         for t in range(1, n_steps):
-            vol[t] = vol[t - 1] * (1 + self.vvol * dz[t])
+            vol[t] = vol[t - 1] * (1 + self.alpha * dz[t])
 
             F[t] = F[t - 1] + vol[t] * dw[t]
 
