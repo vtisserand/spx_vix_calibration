@@ -9,22 +9,22 @@ from statsmodels.tools.sm_exceptions import ValueWarning
 from statsmodels.tools.tools import add_constant
 from statsmodels.tsa.tsatools import lagmat
 
-import config
+from src.config import NB_DAYS_PER_YEAR
 
-
-def get_vol_estimates(prices, nb_daily_samples):
+def get_vol_estimates(prices, nb_daily_samples: int):
     """
-    We are interested in intraday volatility estimates: the usual approach is to
+    For intraday volatility estimates: the usual approach is to
     simulate prices for every 5 minutes interval, keep the daily price and a daily
     vol estimate from the 5 minute samples.
     """
-    realized_variance_i = np.log(prices)**2
+    log_S = np.log(prices)
+    realized_variance_i = ((log_S[1:]-log_S[:-1])**2)
     buckets = int(nb_daily_samples) #daily
     realized_variance_daily = []
     for i in range(int((realized_variance_i.shape)[0]/buckets)):
         realized_variance_daily.append(np.sum(realized_variance_i[i*buckets:(i+1)*buckets],axis=0))
     realized_variance_daily = np.array(realized_variance_daily)    
-    realized_volatility = np.sqrt(config.NB_DAYS_PER_YEAR)*np.sqrt(realized_variance_daily)
+    realized_volatility = np.sqrt(NB_DAYS_PER_YEAR)*np.sqrt(realized_variance_daily)
     return realized_volatility
 
 def calculate_cross_correlation_ols(
