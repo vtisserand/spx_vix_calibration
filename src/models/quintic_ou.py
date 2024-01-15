@@ -124,7 +124,7 @@ class QuinticOU(BaseModel):
         St = np.exp(logSt)
         return St
 
-    def generate_trajectory(self, num_steps, time_step):
+    def generate_paths(self, num_steps, time_step):
         tt = self.get_dates(num_steps, time_step)
         w1 = self.generate_brownian_trajectories(num_steps)
 
