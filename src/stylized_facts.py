@@ -11,18 +11,18 @@ from rich.logging import RichHandler
 from scipy import signal
 from scipy.optimize import curve_fit
 
-from src.utils import (
+from utils import (
     get_vol_estimates,
     plot_crosscorrelations,
     extract_data_from_axes,
 )
-from src.config import NB_SAMPLE_PER_HOUR, NB_TRADING_HOURS_PER_DAY
+from config import NB_SAMPLE_PER_HOUR, NB_TRADING_HOURS_PER_DAY
 
 LOGGER = logging.getLogger("rich")
 
 
 class FitType:
-    NONE = "none"
+    NONE = None
     EXP = "exp"
     POWER = "power"
 
@@ -36,10 +36,14 @@ def power_fit(x, a, b, c):
 
 
 class StylizedFact(ABC):
-    def __init__(self, prices: np.ndarray | list) -> None:
+    def __init__(self, prices: np.ndarray | list, daily: bool = True, vols: np.ndarray | list = None) -> None:
         self.prices = prices
-        self.daily_prices = prices[::int(NB_SAMPLE_PER_HOUR*NB_TRADING_HOURS_PER_DAY)]
-        self.vols = get_vol_estimates(self.prices, nb_daily_samples=int(NB_SAMPLE_PER_HOUR*NB_TRADING_HOURS_PER_DAY))
+        if daily:
+            self.daily_prices = prices
+            self.vols = vols
+        else:
+            self.daily_prices = prices[::int(NB_SAMPLE_PER_HOUR*NB_TRADING_HOURS_PER_DAY)]
+            self.vols = get_vol_estimates(self.prices, nb_daily_samples=int(NB_SAMPLE_PER_HOUR*NB_TRADING_HOURS_PER_DAY))
          
     @abstractmethod
     def is_verified(self, prices):
@@ -60,8 +64,12 @@ class StylizedFact(ABC):
 
 
 class ReturnsAutocorrelation(StylizedFact):
-    def __init__(self, prices: ndarray | list, threshold=0.5, lag=15) -> None:
-        super().__init__(prices)
+    def __init__(self,
+                 prices: ndarray | list,
+                 daily: bool = True,
+                 threshold: float = 0.5,
+                 lag: int = 15) -> None:
+        super().__init__(prices, daily=daily)
         self.threshold = threshold
         self.lag = lag
 
@@ -88,8 +96,12 @@ class ReturnsAutocorrelation(StylizedFact):
 
 
 class HeavyTailsKurtosis(StylizedFact):
-    def __init__(self, prices: ndarray | list, period: int=30, threshold: float=0.5) -> None:
-        super().__init__(prices)
+    def __init__(self,
+                 prices: ndarray | list,
+                 daily: bool = True,
+                 period: int = 30,
+                 threshold: float = 0.5) -> None:
+        super().__init__(prices, daily=daily)
         self.threshold = threshold
         self.period = period
 
@@ -142,8 +154,12 @@ class HeavyTailsKurtosis(StylizedFact):
 
 
 class GainLossSkew(StylizedFact):
-    def __init__(self, prices: ndarray | list, period: int=30, threshold: float=0.5) -> None:
-        super().__init__(prices)
+    def __init__(self,
+                 prices: ndarray | list,
+                 daily: bool = True,
+                 period: int=30,
+                 threshold: float=0.5) -> None:
+        super().__init__(prices, daily=daily)
         self.threshold = threshold
         self.period = period
 
@@ -196,8 +212,12 @@ class GainLossSkew(StylizedFact):
 
 
 class VolatilityClustering(StylizedFact):
-    def __init__(self, prices: ndarray | list, lag: int=100, threshold: float=0.5) -> None:
-        super().__init__(prices)
+    def __init__(self,
+                 prices: ndarray | list,
+                 daily: bool = True,
+                 lag: int=100,
+                 threshold: float=0.5) -> None:
+        super().__init__(prices, daily=daily)
         self.threshold = threshold
         self.lag = lag
 
@@ -206,41 +226,7 @@ class VolatilityClustering(StylizedFact):
     ):
         returns = np.diff(np.log(self.daily_prices))
         x = np.abs(returns)
-        fig = plot_crosscorrelations(x, x, nlags=self.lag, alpha=alpha)
-
-        ax_acf, ax_pacf = fig.get_axes()[0], fig.get_axes()[1]
-        acf, pacf = extract_data_from_axes(ax_acf), extract_data_from_axes(ax_pacf)
-        time_axis = np.arange(len(acf))
-
-        # Plot the optional fit
-        if fit_type == FitType.POWER:
-            acf_fit_coefficients, _ = curve_fit(power_fit, np.arange(len(acf)), acf)
-
-            # Generate the fitted curve
-            fit_acf_curve = power_fit(time_axis, *acf_fit_coefficients)
-
-            equation_str = f"Power Fit: $-{acf_fit_coefficients[0]:.4f} * \exp{{(-x/{acf_fit_coefficients[1]:.4f})}}$"
-            ax_acf.plot(
-                time_axis,
-                fit_acf_curve,
-                linestyle="--",
-                color="crimson",
-                label=equation_str,
-            )
-
-            pacf_fit_coefficients, _ = curve_fit(power_fit, np.arange(len(pacf)), pacf)
-
-            # Generate the fitted curve
-            fit_pacf_curve = power_fit(time_axis, *pacf_fit_coefficients)
-
-            equation_str = f"Power Fit: $-{pacf_fit_coefficients[0]:.4f} * \exp{{(-x/{pacf_fit_coefficients[1]:.4f})}}$"
-            ax_pacf.plot(
-                time_axis,
-                fit_pacf_curve,
-                linestyle="--",
-                color="crimson",
-                label=equation_str,
-            )
+        fig = plot_crosscorrelations(x, x, nlags=self.lag, alpha=alpha, fit_type=fit_type)
 
         if return_obj:
             return fig
@@ -268,8 +254,12 @@ class VolatilityClustering(StylizedFact):
 
 
 class LeverageEffect(StylizedFact):
-    def __init__(self, prices: ndarray | list, lag: int=10, threshold: float=0.5) -> None:
-        super().__init__(prices)
+    def __init__(self,
+                 prices: ndarray | list,
+                 daily: bool = True,
+                 lag: int=10,
+                 threshold: float=0.5) -> None:
+        super().__init__(prices, daily=daily)
         self.threshold = threshold
         self.lag = lag
 
@@ -355,8 +345,13 @@ class LeverageEffect(StylizedFact):
 
 
 class ZumbachEffect(StylizedFact):
-    def __init__(self, prices: ndarray | list, lag: int=10, threshold: float=0.5) -> None:
-        super().__init__(prices)
+    def __init__(self,
+                 prices: ndarray | list,
+                 daily: bool = True,
+                 vols: np.ndarray | list = None,
+                 lag: int=10,
+                 threshold: float=0.5) -> None:
+        super().__init__(prices, daily=daily, vols=vols)
         self.threshold = threshold
         self.lag = lag
 
@@ -369,6 +364,9 @@ class ZumbachEffect(StylizedFact):
             np.where(np.isnan(self.vols), 0, self.vols)[self.lag :],
             mode="same",
         )
+
+        if len(self.vols) > len(square_returns):
+            self.vols = self.vols[1:]
 
         normalization = np.correlate(
             square_returns, np.where(np.isnan(self.vols), 0, self.vols)
@@ -429,49 +427,60 @@ def stylized_fact_pipeline(model_name, model_params, num_steps, time_step, check
         print(f"{checker_name}: {result}")
 
 
-def get_desc_plots(prices):
-    fig, ax1 = plt.subplots()
+def get_desc_plots(prices, daily=True, vols=None):
 
-    vols = get_vol_estimates(
-        prices, nb_daily_samples=int(NB_SAMPLE_PER_HOUR * NB_TRADING_HOURS_PER_DAY)
-    )
+    if daily:
+        daily_prices = prices
+    else:
+        vols = get_vol_estimates(
+            prices, nb_daily_samples=int(NB_SAMPLE_PER_HOUR * NB_TRADING_HOURS_PER_DAY)
+        )
+        daily_prices = prices[::int(NB_SAMPLE_PER_HOUR * NB_TRADING_HOURS_PER_DAY)]
 
-    # This now becomes daily prices
-    daily_prices = prices[::int(NB_SAMPLE_PER_HOUR * NB_TRADING_HOURS_PER_DAY)]
+    daily_returns = np.diff(np.log(daily_prices))
+
+    fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [2, 1]})
 
     # Prices plot on the first y-axis
     time_axis = np.arange(len(daily_prices))
-    ax1.plot(time_axis, daily_prices, color="b")
-    ax1.set_xlabel("Time")
-    ax1.set_ylabel("Prices", color="b")
-    ax1.tick_params("y", colors="b")
+    axs[0].plot(time_axis, daily_prices, color="b")
+    #axs[0].set_xlabel("Time")
+    axs[0].set_ylabel("Prices", color="b")
+    axs[0].tick_params("y", colors="b")
 
     # Volatility plot on the second y-axis
-    ax2 = ax1.twinx()
-    ax2.plot(time_axis[1:], vols, color="r")
+    ax2 = axs[0].twinx()
+    ax2.plot(time_axis[len(daily_prices) - len(vols):], vols, color="r")
     ax2.set_ylabel("Volatility", color="r")
     ax2.tick_params("y", colors="r")
+    axs[0].grid(True)
 
     # Title and legend
-    ax1.set_title("Descriptive plots of the prices sequence")
-    ax1.grid(True)
+    axs[0].set_title("Descriptive plots of the prices sequence")
+
+    time_axis = np.arange(len(daily_returns))
+    axs[1].plot(time_axis, daily_returns, color="b")
+    axs[1].set_xlabel("Time")
+    axs[1].set_ylabel("Returns", color="b")
+    axs[1].tick_params("y", colors="b")
+    axs[1].grid(True)
 
     return fig
 
 
-def generate_pdf(prices, name: str = "combined_plots"):
+def generate_pdf(prices, daily, name: str = "combined_plots", vols: np.ndarray | list = None):
     file_extension = ".pdf"
     pdf_filename = "".join([name, file_extension])
 
     with PdfPages(pdf_filename) as pdf:
-        desc_plot = get_desc_plots(prices)
+        desc_plot = get_desc_plots(prices, daily=daily, vols=vols)
         LOGGER.info("Descriptive plots generated.")
-        return_acf = ReturnsAutocorrelation(prices)
-        kurtosis = HeavyTailsKurtosis(prices)
-        skewness = GainLossSkew(prices)
-        vol_cluster = VolatilityClustering(prices)
-        leverage_effect = LeverageEffect(prices)
-        zumbach_effect = ZumbachEffect(prices)
+        return_acf = ReturnsAutocorrelation(prices, daily=daily)
+        kurtosis = HeavyTailsKurtosis(prices, daily=daily)
+        skewness = GainLossSkew(prices, daily=daily)
+        vol_cluster = VolatilityClustering(prices, daily=daily)
+        leverage_effect = LeverageEffect(prices, daily=daily)
+        zumbach_effect = ZumbachEffect(prices, daily=daily, vols=vols)
 
         returns_acf_plot = return_acf.plot(return_obj=True)
         LOGGER.info("Returns ACF plot generated.")
@@ -479,8 +488,10 @@ def generate_pdf(prices, name: str = "combined_plots"):
         LOGGER.info("Kurtosis plot generated.")
         skewness_plot = skewness.plot(return_obj=True)
         LOGGER.info("Skewness plot generated.")
-        vol_cluster_plot = vol_cluster.plot(return_obj=True)
-        LOGGER.info("Volatility clustering plot generated.")
+        vol_cluster_expo_plot = vol_cluster.plot(return_obj=True, fit_type=FitType.EXP)
+        LOGGER.info("Volatility clustering plot (exponential fit) generated.")
+        vol_cluster_power_plot = vol_cluster.plot(return_obj=True, fit_type=FitType.POWER)
+        LOGGER.info("Volatility clustering plot (power fit) generated.")
         leverage_plot = leverage_effect.plot(
             tra=True, fit_type=FitType.EXP, return_obj=True
         )
@@ -492,7 +503,8 @@ def generate_pdf(prices, name: str = "combined_plots"):
         returns_acf_plot.savefig(pdf, format="pdf")
         kurtosis_plot.savefig(pdf, format="pdf")
         skewness_plot.savefig(pdf, format="pdf")
-        vol_cluster_plot.savefig(pdf, format="pdf")
+        vol_cluster_expo_plot.savefig(pdf, format="pdf")
+        vol_cluster_power_plot.savefig(pdf, format="pdf")
         leverage_plot.savefig(pdf, format="pdf")
         zumbach_plot.savefig(pdf, format="pdf")
 
