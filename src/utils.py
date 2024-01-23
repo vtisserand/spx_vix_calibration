@@ -8,8 +8,9 @@ from statsmodels.compat.numpy import lstsq
 from statsmodels.tools.sm_exceptions import ValueWarning
 from statsmodels.tools.tools import add_constant
 from statsmodels.tsa.tsatools import lagmat
+from scipy.optimize import curve_fit
 
-from src.config import NB_DAYS_PER_YEAR
+from config import NB_DAYS_PER_YEAR
 
 def get_vol_estimates(prices, nb_daily_samples: int):
     """
@@ -179,6 +180,7 @@ def calculate_crosscorrelations(
     x_equals_y=True,
     adjust_denominator=False,
     negative_lags=False,
+    compute_pccf=True,
 ):
     
     sd_x = x.std(ddof=0)
@@ -210,7 +212,7 @@ def calculate_crosscorrelations(
         ccf[k] = ccf_one_lag
         confint[k] = confint_one_lag
         #print("Construction lag: {}, nb datapoints={}".format(k, n))
-    if (not negative_lags) or x_equals_y:
+    if compute_pccf and ((not negative_lags) or x_equals_y):
         pccf = pacf_yule_walker(r)
 
     if negative_lags and x_equals_y:
@@ -240,16 +242,61 @@ def calculate_crosscorrelations(
         confint_neg = np.flip(confint_neg)
         ccf = np.concatenate([ccf_neg, ccf])
         confint = np.concatenate([confint_neg, confint])
-        pccf = cross_correlations_ols(
-            x,
-            y,
-            cross_correlation,
-            nlags,
-            adjust_denominator=adjust_denominator,
-            negative_lags=negative_lags,
-        )
+        if compute_pccf:
+            pccf = cross_correlations_ols(
+                x,
+                y,
+                cross_correlation,
+                nlags,
+                adjust_denominator=adjust_denominator,
+                negative_lags=negative_lags,
+            )
     
+    if not compute_pccf:
+        return ccf, confint
     return ccf, pccf, confint
+
+
+def sum_of_exponentials(x, *params):
+    result = 0
+    for i in range(0, len(params), 2):
+        result += params[i] * np.exp(-params[i+1] * x)
+    return result
+
+
+def sum_of_power_laws(x, *params):
+    result = 0
+    for i in range(0, len(params), 2):
+        result += params[i] * ((1 / x) ** params[i+1])
+    return result
+
+
+def fit_exponential(x, y):
+    # Initial guess for the parameters
+    initial_guess = [1, 1]
+    # Fit the data to the sum of exponentials function
+    fit_params = curve_fit(sum_of_exponentials, x, y, p0=initial_guess, maxfev=1000000)[0]
+    # Generate fitted curve using the obtained parameters
+    y_fit = sum_of_exponentials(x, *fit_params)
+    rss = np.round(np.sum((y - y_fit) ** 2), decimals=3)
+    equation_str = ' + '.join([f"{fit_params[2 * i]:.4f} * \exp{{(-{fit_params[2 * i + 1]:.4f}x)}}" for i in range(int(len(fit_params) / 2))])
+    equation_str = f"Exponential Fit: ${equation_str}$, $RSS={rss}$"
+    equation_str = equation_str.replace('+ -', '-')
+    return y_fit, equation_str
+
+
+def fit_power(x, y):
+    # Initial guess for the parameters
+    initial_guess = [1, 0.5]
+    # Fit the data to the sum of exponentials function
+    fit_params = curve_fit(sum_of_power_laws, x, y, p0=initial_guess, maxfev=1000000)[0]
+    # Generate fitted curve using the obtained parameters
+    y_fit = sum_of_power_laws(x, *fit_params)
+    rss = np.round(np.sum((y - y_fit) ** 2), decimals=3)
+    equation_str = ' + '.join(["{:.4f} * (1/x)^{{{:.4f}}}".format(fit_params[2 * i], fit_params[2 * i + 1]) for i in range(int(len(fit_params) / 2))])
+    equation_str = f"Power Fit: ${equation_str}$, $RSS={rss}$"
+    equation_str = equation_str.replace('+ -', '-')
+    return y_fit, equation_str
 
 
 def plot_ccf_pccf(
@@ -259,6 +306,7 @@ def plot_ccf_pccf(
     alpha,
     x_equals_y=True,
     negative_lags=False,
+    fit_type=None
 ):
 
     y_margin = 0.05
@@ -278,21 +326,31 @@ def plot_ccf_pccf(
         ccf_temp = np.concatenate(
             [ccf[: int((nlags - 1) / 2)], ccf[int((nlags - 1) / 2) + 1 :]]
         )
-        pccf_temp = np.concatenate(
-            [pccf[: int((nlags - 1) / 2)], pccf[int((nlags - 1) / 2) + 1 :]]
-        )
         confint_temp = np.concatenate(
             [confint[: int((nlags - 1) / 2)], confint[int((nlags - 1) / 2) + 1 :]]
         )
-        max_abs_value = max(
-            abs(min(min(ccf_temp), min(pccf_temp), min(confint_temp))),
-            abs(max(max(ccf_temp), max(pccf_temp), max(confint_temp))),
-        )
-        max_value_lag_0 = max(
-            abs(ccf[int((nlags - 1) / 2)]),
-            abs(pccf[int((nlags - 1) / 2)]),
-            abs(confint[int((nlags - 1) / 2)]),
-        )
+        if pccf is not None:
+            pccf_temp = np.concatenate(
+                [pccf[: int((nlags - 1) / 2)], pccf[int((nlags - 1) / 2) + 1 :]]
+            )
+            max_abs_value = max(
+                abs(min(min(ccf_temp), min(pccf_temp), min(confint_temp))),
+                abs(max(max(ccf_temp), max(pccf_temp), max(confint_temp))),
+            )
+            max_value_lag_0 = max(
+                abs(ccf[int((nlags - 1) / 2)]),
+                abs(pccf[int((nlags - 1) / 2)]),
+                abs(confint[int((nlags - 1) / 2)]),
+            )
+        else:
+            max_abs_value = max(
+                abs(min(min(ccf_temp), min(confint_temp))),
+                abs(max(max(ccf_temp), max(confint_temp))),
+            )
+            max_value_lag_0 = max(
+                abs(ccf[int((nlags - 1) / 2)]),
+                abs(confint[int((nlags - 1) / 2)]),
+            )
         if max_value_lag_0 <= 0.99:
             max_abs_value = max(max_abs_value, max_value_lag_0)
         confint[int((nlags - 1) / 2)] = (
@@ -300,28 +358,55 @@ def plot_ccf_pccf(
         ) / 2
         max_y_value = max_abs_value + y_margin
         min_y_value = -max_abs_value - y_margin
+        fit_type = None # fit not implemented for negative lags
     else:
         ccf = ccf[1:]
-        pccf = pccf[1:]
+        if pccf is not None:
+            pccf = pccf[1:]
         confint = confint[1:]
         nlags = len(ccf)
         x = np.array(range(1, nlags + 1))
-        max_abs_value = max(
-            abs(min(min(ccf), min(pccf), min(confint))),
-            abs(max(max(ccf), max(pccf), max(confint))),
-        )
+        if pccf is not None:
+            max_abs_value = max(
+                abs(min(min(ccf), min(pccf), min(confint))),
+                abs(max(max(ccf), max(pccf), max(confint))),
+            )
+        else:
+            max_abs_value = max(
+                abs(min(min(ccf), min(confint))),
+                abs(max(max(ccf), max(confint))),
+            )
         max_y_value = max_abs_value + y_margin
         min_y_value = -max_abs_value - y_margin
     x_margin = max(0.5, (len(ccf) + 1) / 60)
     x_min = min(x) - x_margin
     x_max = max(x) + x_margin
 
-    fig, [ax1, ax2] = plt.subplots(2, 1, sharex=True, figsize=(7, 4))
+    if fit_type is not None:
+        if fit_type == 'exp':
+            ccf_fit, ccf_label = fit_exponential(x, ccf)
+            ccf_label = 'CCF ' + ccf_label
+            if pccf is not None:
+                pccf_fit, pccf_label = fit_exponential(x, pccf)
+                pccf_label = 'PCCF ' + pccf_label
+        elif fit_type == 'power':
+            ccf_fit, ccf_label = fit_power(x, ccf)
+            ccf_label = 'CCF ' + ccf_label
+            if pccf is not None:
+                pccf_fit, pccf_label = fit_power(x, pccf)
+                pccf_label = 'PCCF ' + pccf_label
+        else:
+            raise ValueError("'{}' not implemented yet for fitting.")
+
+    if pccf is not None:
+        fig, [ax1, ax2] = plt.subplots(2, 1, sharex=True, figsize=(8, 5), gridspec_kw={'hspace': 0})
+    else:
+        fig, ax1 = plt.subplots(1, 1, figsize=(8, 3))
 
     # Plot CCF using stem plot
     ax1.axhline(y=0, color="black", linestyle="-", linewidth=0.5)
     if nlags <= max_nlags_stem:
-        markerline, stemlines, baseline = ax1.stem(x, ccf, linefmt="-", basefmt=" ")
+        markerline, stemlines, _ = ax1.stem(x, ccf, linefmt="-", basefmt=" ")
         plt.setp(stemlines, "color", color_stemlines)  # Set stem line color
         plt.setp(markerline, "color", color_markerline)  # Set marker line color
         ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
@@ -333,37 +418,63 @@ def plot_ccf_pccf(
         ax1.set_xticklabels(x_ticks)
     else:
         ax1.scatter(x, ccf, color=color, marker="o", s=10)
+    if fit_type is not None:
+        ax1.plot(x, ccf_fit, 'r--', color='seagreen', label=ccf_label)
     ax1.hlines(confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6, label="{}% confidence interval".format(str_confidence_level))
     ax1.hlines(-confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6)
     ax1.set_xlim(min(x) - x_margin, max(x) + x_margin)
     ax1.set_ylabel(ccf_ylabel)
     ax1.set_ylim(min_y_value, max_y_value)
 
-    # Plot PCCF using stem plot
-    ax2.axhline(y=0, color="black", linestyle="-", linewidth=0.5)
-    if nlags <= max_nlags_stem:
-        markerline, stemlines, baseline = ax2.stem(
-            x, pccf, linefmt="-", basefmt=" "
-        )
-        plt.setp(stemlines, "color", color_stemlines)  # Set stem line color
-        plt.setp(markerline, "color", color_markerline)  # Set marker line color
-    else:
-        ax2.scatter(x, pccf, color=color, marker="o", s=10)
-    ax2.hlines(confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6)
-    ax2.hlines(-confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6)
-    ax2.set_xlabel("Lag")
-    ax2.set_xlim(x_min, x_max)
-    ax2.set_ylabel(pccf_ylabel)
-    ax2.set_ylim(min_y_value, max_y_value)
+    if pccf is not None:
+        # Plot PCCF using stem plot
+        ax2.axhline(y=0, color="black", linestyle="-", linewidth=0.5)
+        if nlags <= max_nlags_stem:
+            markerline, stemlines, _ = ax2.stem(
+                x, pccf, linefmt="-", basefmt=" "
+            )
+            plt.setp(stemlines, "color", color_stemlines)  # Set stem line color
+            plt.setp(markerline, "color", color_markerline)  # Set marker line color
+        else:
+            ax2.scatter(x, pccf, color=color, marker="o", s=10)
+        if fit_type is not None:
+            ax2.plot(x, pccf_fit, 'r--', color='seagreen', label=pccf_label)
+        ax2.hlines(confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6)
+        ax2.hlines(-confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6)
+        ax2.set_xlabel("Lag")
+        ax2.set_xlim(x_min, x_max)
+        ax2.set_ylabel(pccf_ylabel)
+        ax2.set_ylim(min_y_value, max_y_value)
 
-    handles, labels = ax1.get_legend_handles_labels()
-    fig.legend(handles, labels, bbox_to_anchor=(0.68, 0.874))
-    fig.suptitle(
-        "{}".format(suptitle),
-        fontsize=15,
-        y=0.943,
-    )
-    fig.subplots_adjust(hspace=0.2, top=0.75)
+    if fit_type is not None:
+        # Get handles and labels from both legends
+        handles1, labels1 = ax1.get_legend_handles_labels()
+        handles = [handles1[1]]
+        labels = [labels1[1]]
+        handles_ccf = [handles1[0]]
+        labels_ccf = [labels1[0]]
+        if pccf is not None:
+            handles2, labels2 = ax2.get_legend_handles_labels()
+            handles_pccf = [handles2[0]]
+            labels_pccf = [labels2[0]]
+            ax2.legend(handles_pccf, labels_pccf, loc='lower right')
+            ax1.legend(handles_ccf, labels_ccf, loc='lower right')
+            fig.legend(handles, labels, bbox_to_anchor=(0.65, 0.9))
+        else:
+            ax1.legend(handles + handles_ccf, labels + labels_ccf, loc='lower right')
+    else:
+        handles, labels = ax1.get_legend_handles_labels()
+        fig.legend(handles, labels, bbox_to_anchor=(0.65, 0.9))
+
+    if pccf is not None:
+        fig.suptitle(
+            "{}".format(suptitle),
+            fontsize=15,
+            y=0.943,
+        )
+        fig.subplots_adjust(hspace=0.2, top=0.81)
+    else:
+        ax1.set_title("{}".format(suptitle))
 
     return fig
 
@@ -375,10 +486,12 @@ def plot_crosscorrelations(
     alpha=0.05,
     adjust_denominator=False,
     negative_lags=False,
+    fit_type=None
 ):
     
     x_equals_y = np.array_equal(x, y)
-    ccf, pccf, confint = calculate_crosscorrelations(
+    compute_pccf = nlags <= 100
+    results = calculate_crosscorrelations(
         x,
         y,
         nlags=nlags,
@@ -386,7 +499,14 @@ def plot_crosscorrelations(
         x_equals_y=x_equals_y,
         adjust_denominator=adjust_denominator,
         negative_lags=negative_lags,
+        compute_pccf=compute_pccf,
     )
+
+    if compute_pccf:
+        ccf, pccf, confint = results
+    else:
+        ccf, confint = results
+        pccf = None
 
     fig = plot_ccf_pccf(
         ccf,
@@ -395,6 +515,7 @@ def plot_crosscorrelations(
         alpha=alpha,
         x_equals_y=x_equals_y,
         negative_lags=negative_lags,
+        fit_type=fit_type,
     )
 
     return fig
