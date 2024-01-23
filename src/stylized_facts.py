@@ -215,7 +215,7 @@ class VolatilityClustering(StylizedFact):
     def __init__(self,
                  prices: ndarray | list,
                  daily: bool = True,
-                 lag: int=100,
+                 lag: int=500,
                  threshold: float=0.5) -> None:
         super().__init__(prices, daily=daily)
         self.threshold = threshold
@@ -444,7 +444,6 @@ def get_desc_plots(prices, daily=True, vols=None):
     # Prices plot on the first y-axis
     time_axis = np.arange(len(daily_prices))
     axs[0].plot(time_axis, daily_prices, color="b")
-    #axs[0].set_xlabel("Time")
     axs[0].set_ylabel("Prices", color="b")
     axs[0].tick_params("y", colors="b")
 
