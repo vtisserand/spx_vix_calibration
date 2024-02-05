@@ -222,11 +222,11 @@ class VolatilityClustering(StylizedFact):
         self.lag = lag
 
     def plot(
-        self, fit_type: FitType = FitType.NONE, alpha=0.05, return_obj: bool = False
+        self, fit_type: FitType = FitType.NONE, nb_params=2, alpha=0.05, return_obj: bool = False
     ):
         returns = np.diff(np.log(self.daily_prices))
         x = np.abs(returns)
-        fig = plot_crosscorrelations(x, x, nlags=self.lag, alpha=alpha, fit_type=fit_type)
+        fig = plot_crosscorrelations(x, x, nlags=self.lag, alpha=alpha, fit_type=fit_type, nb_params=nb_params)
 
         if return_obj:
             return fig
@@ -489,8 +489,10 @@ def generate_pdf(prices, daily, name: str = "combined_plots", vols: np.ndarray |
         LOGGER.info("Skewness plot generated.")
         vol_cluster_expo_plot = vol_cluster.plot(return_obj=True, fit_type=FitType.EXP)
         LOGGER.info("Volatility clustering plot (exponential fit) generated.")
-        vol_cluster_power_plot = vol_cluster.plot(return_obj=True, fit_type=FitType.POWER)
-        LOGGER.info("Volatility clustering plot (power fit) generated.")
+        vol_cluster_power_plot_2_params = vol_cluster.plot(return_obj=True, fit_type=FitType.POWER, nb_params=2)
+        LOGGER.info("Volatility clustering plot (power fit, 2 parameters) generated.")
+        vol_cluster_power_plot_3_params = vol_cluster.plot(return_obj=True, fit_type=FitType.POWER, nb_params=3)
+        LOGGER.info("Volatility clustering plot (power fit, 3 parameters) generated.")
         leverage_plot = leverage_effect.plot(
             tra=True, fit_type=FitType.EXP, return_obj=True
         )
@@ -503,7 +505,8 @@ def generate_pdf(prices, daily, name: str = "combined_plots", vols: np.ndarray |
         kurtosis_plot.savefig(pdf, format="pdf")
         skewness_plot.savefig(pdf, format="pdf")
         vol_cluster_expo_plot.savefig(pdf, format="pdf")
-        vol_cluster_power_plot.savefig(pdf, format="pdf")
+        vol_cluster_power_plot_2_params.savefig(pdf, format="pdf")
+        vol_cluster_power_plot_3_params.savefig(pdf, format="pdf")
         leverage_plot.savefig(pdf, format="pdf")
         zumbach_plot.savefig(pdf, format="pdf")
 

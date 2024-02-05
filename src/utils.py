@@ -264,10 +264,17 @@ def sum_of_exponentials(x, *params):
     return result
 
 
-def sum_of_power_laws(x, *params):
+def sum_of_power_laws_2_params(x, *params):
     result = 0
     for i in range(0, len(params), 2):
         result += params[i] * ((1 / x) ** params[i+1])
+    return result
+
+
+def sum_of_power_laws_3_params(x, *params):
+    result = 0
+    for i in range(0, len(params), 3):
+        result += params[i] * ((1 / (x + params[i+2])) ** params[i+1])
     return result
 
 
@@ -285,15 +292,19 @@ def fit_exponential(x, y):
     return y_fit, equation_str
 
 
-def fit_power(x, y):
+def fit_power(x, y, nb_params=2):
     # Initial guess for the parameters
-    initial_guess = [1, 0.5]
+    initial_guess = [1, 0.5] if nb_params == 2 else [1, 0.5, 10]
     # Fit the data to the sum of exponentials function
-    fit_params = curve_fit(sum_of_power_laws, x, y, p0=initial_guess, maxfev=1000000)[0]
-    # Generate fitted curve using the obtained parameters
-    y_fit = sum_of_power_laws(x, *fit_params)
+    if nb_params == 2:
+        fit_params = curve_fit(sum_of_power_laws_2_params, x, y, p0=initial_guess, maxfev=1000000)[0]
+        y_fit = sum_of_power_laws_2_params(x, *fit_params)
+        equation_str = ' + '.join(["{:.4f} * (1/x)^{{{:.4f}}}".format(fit_params[2 * i], fit_params[2 * i + 1]) for i in range(int(len(fit_params) / 2))])
+    else:
+        fit_params = curve_fit(sum_of_power_laws_3_params, x, y, p0=initial_guess, maxfev=1000000)[0]
+        y_fit = sum_of_power_laws_3_params(x, *fit_params)
+        equation_str = ' + '.join(["{:.4f} * (1/(x + {{{:.4f}}}))^{{{:.4f}}}".format(fit_params[3 * i], fit_params[3 * i + 1], fit_params[3 * i + 2]) for i in range(int(len(fit_params) / 3))])
     rss = np.round(np.sum((y - y_fit) ** 2), decimals=3)
-    equation_str = ' + '.join(["{:.4f} * (1/x)^{{{:.4f}}}".format(fit_params[2 * i], fit_params[2 * i + 1]) for i in range(int(len(fit_params) / 2))])
     equation_str = f"Power Fit: ${equation_str}$, $RSS={rss}$"
     equation_str = equation_str.replace('+ -', '-')
     return y_fit, equation_str
@@ -306,7 +317,8 @@ def plot_ccf_pccf(
     alpha,
     x_equals_y=True,
     negative_lags=False,
-    fit_type=None
+    fit_type=None,
+    nb_params=2
 ):
 
     y_margin = 0.05
@@ -390,10 +402,10 @@ def plot_ccf_pccf(
                 pccf_fit, pccf_label = fit_exponential(x, pccf)
                 pccf_label = 'PCCF ' + pccf_label
         elif fit_type == 'power':
-            ccf_fit, ccf_label = fit_power(x, ccf)
+            ccf_fit, ccf_label = fit_power(x, ccf, nb_params=nb_params)
             ccf_label = 'CCF ' + ccf_label
             if pccf is not None:
-                pccf_fit, pccf_label = fit_power(x, pccf)
+                pccf_fit, pccf_label = fit_power(x, pccf, nb_params=nb_params)
                 pccf_label = 'PCCF ' + pccf_label
         else:
             raise ValueError("'{}' not implemented yet for fitting.")
@@ -486,7 +498,8 @@ def plot_crosscorrelations(
     alpha=0.05,
     adjust_denominator=False,
     negative_lags=False,
-    fit_type=None
+    fit_type=None,
+    nb_params=2,
 ):
     
     x_equals_y = np.array_equal(x, y)
@@ -516,6 +529,7 @@ def plot_crosscorrelations(
         x_equals_y=x_equals_y,
         negative_lags=negative_lags,
         fit_type=fit_type,
+        nb_params=nb_params,
     )
 
     return fig
