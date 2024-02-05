@@ -1,5 +1,5 @@
 # Ignore notebooks
-notebooks/
+nbs/
 __pycache__/
 .idea
 *.ipynb
