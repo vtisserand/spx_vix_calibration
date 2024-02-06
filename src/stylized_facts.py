@@ -38,6 +38,11 @@ def power_fit(x, a, b, c):
 class StylizedFact(ABC):
     def __init__(self, prices: np.ndarray | list, daily: bool = True, vols: np.ndarray | list = None) -> None:
         self.prices = prices
+        if len(self.prices.shape) == 1:
+            self.n_sim = 1
+        else:
+            self.n_sim = self.prices.shape[1]
+
         if daily:
             self.daily_prices = prices
             self.vols = vols
@@ -84,7 +89,7 @@ class ReturnsAutocorrelation(StylizedFact):
         return returns_autocorr > self.threshold
 
     def plot(self, return_obj: bool = False):
-        returns = np.diff(np.log(self.daily_prices))
+        returns = np.diff(np.log(self.daily_prices), axis=0)
         x = returns
         y = returns
         fig = plot_crosscorrelations(x, y, nlags=self.lag, alpha=0.05)
@@ -113,37 +118,49 @@ class HeavyTailsKurtosis(StylizedFact):
 
     @staticmethod
     def calculate_kurtosis(returns):
-        mean_returns = np.mean(returns)
-        std_returns = np.std(returns)
-
+        mean_returns = np.mean(returns, axis=0)
+        std_returns = np.std(returns, axis=0)
+        
         # Calculate empirical kurtosis
-        numerator = np.mean((returns - mean_returns) ** 4)
-        denominator = std_returns**4
+        numerator = np.mean((returns - mean_returns) ** 4, axis=0)
+        denominator = std_returns ** 4
         excess_kurtosis = numerator / denominator - 3
 
         return excess_kurtosis
 
-    def compute_list_kurtosis(self, period=30):
-        list_kurtosis = []
+    def compute_arr_kurtosis(self, period=30):
+        arr_kurtosis = np.zeros((period, self.n_sim))
         for i in range(1, period + 1):
-            returns = np.diff(np.log(self.daily_prices[::i]))
+            returns = np.diff(np.log(self.daily_prices[::i]), axis=0)
             kurtosis = self.calculate_kurtosis(returns)
-            list_kurtosis.append(kurtosis)
+            arr_kurtosis[i - 1, :] = kurtosis
 
-        return list_kurtosis
+        return arr_kurtosis
 
     def plot(self, return_obj: bool = False):
-        list_kurtosis = self.compute_list_kurtosis(period=self.period)
+        arr_kurtosis = self.compute_arr_kurtosis(period=self.period)
+        kurtosis_std = arr_kurtosis.std(ddof=0, axis=1)
+        kurtosis_mean = arr_kurtosis.mean(axis=1)
 
         fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(7, 5))
+        x = list(range(1, self.period + 1))
         ax.plot(
-            list(range(1, self.period + 1)),
-            list_kurtosis,
+            x,
+            kurtosis_mean,
             color="royalblue",
             label="Excess Kurtosis",
         )
+        if self.n_sim > 1:
+            ax.fill_between(
+                x,
+                kurtosis_mean - kurtosis_std,
+                kurtosis_mean + kurtosis_std,
+                alpha=0.2,
+                label='Standard error ({} simulations)'.format(self.n_sim)
+            )
         ax.set_xlabel("Period")
         ax.axhline(y=0, color="crimson", linestyle="--")
+        ax.legend(loc="upper right")
         ax.set_title("Excess kurtosis of returns")
         ax.grid(which="both", linestyle="--", linewidth=0.5)
 
@@ -171,37 +188,49 @@ class GainLossSkew(StylizedFact):
 
     @staticmethod
     def calculate_skewness(returns):
-        mean_returns = np.mean(returns)
-        std_returns = np.std(returns)
+        mean_returns = np.mean(returns, axis=0)
+        std_returns = np.std(returns, axis=0)
 
         # Calculate empirical skewness
-        numerator = np.mean((returns - mean_returns) ** 3)
-        denominator = std_returns**3
+        numerator = np.mean((returns - mean_returns) ** 3, axis=0)
+        denominator = std_returns ** 3
         skewness = numerator / denominator
 
         return skewness
 
-    def compute_list_skewness(self, period=30):
-        list_skewness = []
+    def compute_arr_skewness(self, period=30):
+        arr_skewness = np.zeros((period, self.n_sim))
         for i in range(1, period + 1):
-            returns = np.diff(np.log(self.daily_prices[::i]))
+            returns = np.diff(np.log(self.daily_prices[::i]), axis=0)
             skewness = self.calculate_skewness(returns)
-            list_skewness.append(skewness)
+            arr_skewness[i - 1, :] = skewness
 
-        return list_skewness
+        return arr_skewness
 
     def plot(self, return_obj: bool = False):
-        list_skewness = self.compute_list_skewness(period=self.period)
+        arr_skewness = self.compute_arr_skewness(period=self.period)
+        skewness_std = arr_skewness.std(ddof=0, axis=1)
+        skewness_mean = arr_skewness.mean(axis=1)
 
-        fig, ax = plt.subplots(nrows=1, ncols=1)
+        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(7, 5))
+        x = list(range(1, self.period + 1))
         ax.plot(
-            list(range(1, self.period + 1)),
-            list_skewness,
+            x,
+            skewness_mean,
             color="royalblue",
             label="Skewness",
         )
+        if self.n_sim > 1:
+            ax.fill_between(
+                x,
+                skewness_mean - skewness_std,
+                skewness_mean + skewness_std,
+                alpha=0.2,
+                label='Standard error ({} simulations)'.format(self.n_sim)
+            )
         ax.set_xlabel("Period")
         ax.axhline(y=0, color="crimson", linestyle="--")
+        ax.legend(loc="lower right")
         ax.set_title("Skewness of returns")
         ax.grid(which="both", linestyle="--", linewidth=0.5)
 
@@ -215,7 +244,7 @@ class VolatilityClustering(StylizedFact):
     def __init__(self,
                  prices: ndarray | list,
                  daily: bool = True,
-                 lag: int=500,
+                 lag: int=150,
                  threshold: float=0.5) -> None:
         super().__init__(prices, daily=daily)
         self.threshold = threshold
@@ -264,20 +293,26 @@ class LeverageEffect(StylizedFact):
         self.lag = lag
 
     def compute_cross_correlation(self):
-        returns = np.diff(np.log(self.daily_prices))
+        returns = np.diff(np.log(self.daily_prices), axis=0)
         absolute_returns = np.abs(returns)
-
         # Calculate correlation between squared absolute returns and returns at lag
         squared_absolute_returns = absolute_returns**2
-        correlation = signal.correlate(
-            squared_absolute_returns[: -self.lag], returns[self.lag :], mode="same"
-        )
 
-        normalization = np.correlate(
-            squared_absolute_returns, squared_absolute_returns
-        )  # Normalize
+        if self.n_sim == 1:
+            returns = returns.reshape((returns.shape[0], 1))
+            squared_absolute_returns = squared_absolute_returns.reshape((squared_absolute_returns.shape[0], 1))
 
-        leverage_effect_corr = correlation / normalization
+        correlations = np.zeros((returns.shape[0] - self.lag, self.n_sim))
+        normalization = np.zeros((self.n_sim))
+        for i in range(self.n_sim):
+            correlations[:, i] = signal.correlate(
+                squared_absolute_returns[: -self.lag, i], returns[self.lag :, i], mode="same"
+            )
+            normalization[i] = np.correlate(
+                squared_absolute_returns[:, i], squared_absolute_returns[:, i]
+            )  # Normalize
+        leverage_effect_corr = correlations / normalization
+
         return leverage_effect_corr
 
     def plot(
@@ -285,7 +320,7 @@ class LeverageEffect(StylizedFact):
         window: int = 200,
         fit_type: FitType = FitType.NONE,
         tra: bool = False,
-        show_confidence_bounds: bool = False,
+        show_confidence_bounds: bool = True,
         return_obj: bool = False,
     ):
         fig, ax = plt.subplots()
@@ -294,7 +329,22 @@ class LeverageEffect(StylizedFact):
 
         # Trim to actually get cross-correlation
         corr = correlation[len(correlation) // 2 + self.lag :][:window]
-        time_axis = np.arange(len(corr))
+        if tra:
+            corr_tra = correlation[: len(correlation) // 2 + self.lag - 1][::-1][
+                :window
+            ]
+            min_length = min(len(corr), len(corr_tra))
+            corr = corr[:min_length, :]
+            corr_tra = corr_tra[:min_length, :]
+            corr_tra_std = corr_tra.std(ddof=0, axis=1)
+            corr_tra = corr_tra.mean(axis=1)
+        corr_std = corr.std(ddof=0, axis=1)
+        if tra:
+            corr_std = np.concatenate([corr_std.reshape(len(corr_std), 1),
+                corr_tra_std.reshape(len(corr_tra_std), 1)], axis=1)
+            corr_std = corr_std.max(axis=1)
+        corr = corr.mean(axis=1)
+        time_axis = np.arange(corr.shape[0])
 
         # Plot the optional fit
         if fit_type == FitType.EXP:
@@ -312,13 +362,9 @@ class LeverageEffect(StylizedFact):
                 label=equation_str,
             )
 
-        if show_confidence_bounds:
-            pass
-
+        # Plot the correlation values
+        ax.scatter(time_axis, corr, label="Correlation", color="royalblue", s=10)
         if tra:
-            corr_tra = correlation[: len(correlation) // 2 + self.lag - 1][::-1][
-                :window
-            ]
             ax.scatter(
                 np.arange(len(corr_tra)),
                 corr_tra,
@@ -328,8 +374,15 @@ class LeverageEffect(StylizedFact):
                 alpha=0.4,
             )
 
-        # Plot the correlation values
-        ax.scatter(time_axis, corr, label="Correlation", color="royalblue", s=10)
+        if (self.n_sim > 1) and show_confidence_bounds:
+            ax.fill_between(
+                time_axis,
+                corr - corr_std,
+                corr + corr_std,
+                alpha=0.2,
+                label='Standard error ({} simulations)'.format(self.n_sim)
+            )
+
         ax.set_title(
             "Cross-Correlation of squared absolute returns and returns\n Leverage effect"
         )
@@ -356,38 +409,65 @@ class ZumbachEffect(StylizedFact):
         self.lag = lag
 
     def compute_cross_correlation(self):
-        returns = np.diff(np.log(self.daily_prices))
+        returns = np.diff(np.log(self.daily_prices), axis=0)
         square_returns = np.square(returns)
+        if self.n_sim == 1:
+            square_returns = square_returns.reshape((square_returns.shape[0], 1))
+            vols = self.vols.reshape((self.vols.shape[0], 1))
+        else:
+            vols = self.vols
 
-        correlation = signal.correlate(
-            square_returns[: -self.lag],
-            np.where(np.isnan(self.vols), 0, self.vols)[self.lag :],
-            mode="same",
-        )
+        correlations = np.zeros((square_returns.shape[0] - self.lag, self.n_sim))
+        normalization = np.zeros((self.n_sim))
+        for i in range(self.n_sim):
+            correlations[:, i] = signal.correlate(
+                square_returns[: -self.lag, i],
+                np.where(np.isnan(vols[:, i]), 0, vols[:, i])[self.lag :],
+                mode="same",
+            )
 
-        if len(self.vols) > len(square_returns):
-            self.vols = self.vols[1:]
+        if len(vols) > len(square_returns):
+            vols = vols[1:]
 
-        normalization = np.correlate(
-            square_returns, np.where(np.isnan(self.vols), 0, self.vols)
-        )  # Normalize
+        for i in range(self.n_sim):
+            normalization[i] = np.correlate(
+                square_returns[:, i], np.where(np.isnan(vols[:, i]), 0, vols[:, i])
+            ) # Normalize
+        zumbach_effect_corr = correlations / normalization
 
-        zumbach_effect_corr = correlation / normalization
         return zumbach_effect_corr
 
-    def plot(self, window: int = 200, tra: bool = False, return_obj: bool = False):
+    def plot(self,
+             window: int = 200,
+             tra: bool = False,
+             show_confidence_bounds: bool = True,
+             return_obj: bool = False):
         fig, ax = plt.subplots()
 
         correlation = self.compute_cross_correlation()
 
         # Trim to actually get cross-correlation
         corr = correlation[len(correlation) // 2 + self.lag :][:window]
-        time_axis = np.arange(len(corr))
-
         if tra:
             corr_tra = correlation[: len(correlation) // 2 + self.lag - 1][::-1][
                 :window
             ]
+            min_length = min(len(corr), len(corr_tra))
+            corr = corr[:min_length, :]
+            corr_tra = corr_tra[:min_length, :]
+            corr_tra_std = corr_tra.std(ddof=0, axis=1)
+            corr_tra = corr_tra.mean(axis=1)
+        corr_std = corr.std(ddof=0, axis=1)
+        if tra:
+            corr_std = np.concatenate([corr_std.reshape(len(corr_std), 1),
+                corr_tra_std.reshape(len(corr_tra_std), 1)], axis=1)
+            corr_std = corr_std.max(axis=1)
+        corr = corr.mean(axis=1)
+        time_axis = np.arange(corr.shape[0])
+
+        # Plot the correlation values
+        ax.plot(time_axis, corr, label="Correlation", color="blue")
+        if tra:
             ax.plot(
                 np.arange(len(corr_tra)),
                 corr_tra,
@@ -396,8 +476,15 @@ class ZumbachEffect(StylizedFact):
                 alpha=0.4,
             )
 
-        # Plot the correlation values
-        ax.plot(time_axis, corr, label="Correlation", color="blue")
+        if (self.n_sim > 1) and show_confidence_bounds:
+            ax.fill_between(
+                time_axis,
+                corr - corr_std,
+                corr + corr_std,
+                alpha=0.2,
+                label='Standard error ({} simulations)'.format(self.n_sim)
+            )
+
         ax.set_title("Cross-Correlation of\n Zumbach effect")
         ax.legend()
         ax.grid(True)
@@ -480,7 +567,6 @@ def generate_pdf(prices, daily, name: str = "combined_plots", vols: np.ndarray |
         vol_cluster = VolatilityClustering(prices, daily=daily)
         leverage_effect = LeverageEffect(prices, daily=daily)
         zumbach_effect = ZumbachEffect(prices, daily=daily, vols=vols)
-
         returns_acf_plot = return_acf.plot(return_obj=True)
         LOGGER.info("Returns ACF plot generated.")
         kurtosis_plot = kurtosis.plot(return_obj=True)
@@ -491,24 +577,21 @@ def generate_pdf(prices, daily, name: str = "combined_plots", vols: np.ndarray |
         LOGGER.info("Volatility clustering plot (exponential fit) generated.")
         vol_cluster_power_plot_2_params = vol_cluster.plot(return_obj=True, fit_type=FitType.POWER, nb_params=2)
         LOGGER.info("Volatility clustering plot (power fit, 2 parameters) generated.")
-        vol_cluster_power_plot_3_params = vol_cluster.plot(return_obj=True, fit_type=FitType.POWER, nb_params=3)
-        LOGGER.info("Volatility clustering plot (power fit, 3 parameters) generated.")
         leverage_plot = leverage_effect.plot(
             tra=True, fit_type=FitType.EXP, return_obj=True
         )
         LOGGER.info("Leverage effect plot generated.")
         zumbach_plot = zumbach_effect.plot(tra=True, return_obj=True)
         LOGGER.info("Zumbach effect plot generated.")
-
         desc_plot.savefig(pdf, format="pdf")
         returns_acf_plot.savefig(pdf, format="pdf")
         kurtosis_plot.savefig(pdf, format="pdf")
         skewness_plot.savefig(pdf, format="pdf")
         vol_cluster_expo_plot.savefig(pdf, format="pdf")
         vol_cluster_power_plot_2_params.savefig(pdf, format="pdf")
-        vol_cluster_power_plot_3_params.savefig(pdf, format="pdf")
         leverage_plot.savefig(pdf, format="pdf")
         zumbach_plot.savefig(pdf, format="pdf")
+        
 
 
 # model_params = {

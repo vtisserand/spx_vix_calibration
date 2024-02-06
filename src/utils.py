@@ -148,6 +148,7 @@ def pacf_yule_walker(r):
 
 
 
+
 def calculate_cross_covariances(
     x,
     y,
@@ -157,19 +158,28 @@ def calculate_cross_covariances(
     confint_coef=None,
     adjust_denominator=False,
 ):
-    arr_corr_left = x[:-k]
-    arr_corr_right = y[k:]
-    n = len(arr_corr_left) + k
-    r = (1 / (n - k * adjust_denominator)) * np.correlate(
-        arr_corr_left, arr_corr_right
-    )[0]
+    if len(x.shape) == 1:
+        x = x.reshape((x.shape[0], 1))
+    if len(y.shape) == 1:
+        y = y.reshape((y.shape[0], 1))
+    n_sim = x.shape[1]
+
+    arr_corr_left = x[:-k, :]
+    arr_corr_right = y[k:, :]
+    n = arr_corr_left.shape[0] + k
+
+    r = np.zeros(n_sim)
+    for i in range(n_sim):
+        r[i] = (1 / (n - k * adjust_denominator)) * np.correlate(arr_corr_left[:, i], arr_corr_right[:, i])[0]
     ccf = r / (sd_x * sd_y)
     if confint_coef is None:
+        if n_sim == 1:
+            return r[0], ccf[0]
         return r, ccf
-    confint = confint_coef * np.sqrt(1.0 / n)
+    confint = np.array([confint_coef * np.sqrt(1.0 / n)] * n_sim)
+    if n_sim == 1:
+        return r[0], ccf[0], confint[0]
     return r, ccf, confint
-
-
 
 
 def calculate_crosscorrelations(
@@ -182,22 +192,29 @@ def calculate_crosscorrelations(
     negative_lags=False,
     compute_pccf=True,
 ):
-    
-    sd_x = x.std(ddof=0)
-    sd_y = y.std(ddof=0)
-    x -= x.mean()
-    y -= y.mean()
-    n = len(x)
-    cross_covariance = (1 / n) * np.correlate(x, y)[0]
-    cross_correlation = cross_covariance / (sd_x * sd_y)
-    confint_coef = scipy.stats.norm.ppf(1.0 - (alpha / 2.0))
+    if len(x.shape) == 1:
+        x = x.reshape((x.shape[0], 1))
+    if len(y.shape) == 1:
+        y = y.reshape((y.shape[0], 1))
+    n_sim = x.shape[1]
 
-    ccf = np.zeros(nlags + 1, np.float64)
-    ccf[0] = cross_correlation
-    r = np.zeros(nlags + 1, np.float64)
-    r[0] = cross_covariance
-    confint = np.zeros(nlags + 1, np.float64)
-    confint[0] = cross_correlation
+    sd_x = x.std(ddof=0, axis=0)
+    sd_y = y.std(ddof=0, axis=0)
+    x -= x.mean(axis=0)
+    y -= y.mean(axis=0)
+    n = x.shape[0]
+    cross_covariances = []
+    for i in range(n_sim):
+        cross_covariances.append((1 / n) * np.correlate(x[:, i], y[:, i])[0])
+    cross_correlations = cross_covariances / (sd_x * sd_y)
+    confint_coef = scipy.stats.norm.ppf(1.0 - (alpha / 2.0))
+    ccf = np.zeros((nlags + 1, n_sim), np.float64)
+    ccf[0, :] = cross_correlations
+    r = np.zeros((nlags + 1, n_sim), np.float64)
+    r[0, :] = cross_covariances
+    confint = np.zeros((nlags + 1, n_sim), np.float64)
+    confint[0, :] = cross_correlations
+
     for k in range(1, nlags + 1):
         r_one_lag, ccf_one_lag, confint_one_lag = calculate_cross_covariances(
             x,
@@ -208,23 +225,25 @@ def calculate_crosscorrelations(
             confint_coef=confint_coef,
             adjust_denominator=adjust_denominator,
         )
-        r[k] = r_one_lag
-        ccf[k] = ccf_one_lag
-        confint[k] = confint_one_lag
-        #print("Construction lag: {}, nb datapoints={}".format(k, n))
+        r[k, :] = r_one_lag
+        ccf[k, :] = ccf_one_lag
+        confint[k, :] = confint_one_lag
     if compute_pccf and ((not negative_lags) or x_equals_y):
-        pccf = pacf_yule_walker(r)
+        pccf = np.zeros((nlags + 1, n_sim), np.float64)
+        for i in range(n_sim):
+            pccf[:, i] = pacf_yule_walker(r[:, i])
 
     if negative_lags and x_equals_y:
-        ccf_neg = np.flip(ccf)[:-1]
-        pccf_neg = np.flip(pccf)[:-1]
-        confint_neg = np.flip(confint)[:-1]
-        ccf = np.concatenate([ccf_neg, ccf])
-        pccf = np.concatenate([pccf_neg, pccf])
-        confint = np.concatenate([confint_neg, confint])
+        ccf_neg = np.flip(ccf, axis=0)[:-1]
+        ccf = np.concatenate([ccf_neg, ccf], axis=0)
+        confint_neg = np.flip(confint, axis=0)[:-1]
+        confint = np.concatenate([confint_neg, confint], axis=0)
+        if compute_pccf:
+            pccf_neg = np.flip(pccf, axis=0)[:-1]
+            pccf = np.concatenate([pccf_neg, pccf], axis=0)
     elif negative_lags and (not x_equals_y):
-        ccf_neg = np.zeros(nlags, np.float64)
-        confint_neg = np.zeros(nlags, np.float64)
+        ccf_neg = np.zeros((nlags, n_sim), np.float64)
+        confint_neg = np.zeros((nlags, n_sim), np.float64)
         for k in range(1, nlags + 1):
             ccf_one_lag, confint_one_lag = calculate_cross_covariances(
                 y,
@@ -235,25 +254,31 @@ def calculate_crosscorrelations(
                 confint_coef=confint_coef,
                 adjust_denominator=adjust_denominator,
             )[1:]
-            ccf_neg[k - 1] = ccf_one_lag
-            confint_neg[k - 1] = confint_one_lag
-            #print("Construction lag: {}, nb datapoints={}".format(-k, n))
-        ccf_neg = np.flip(ccf_neg)
-        confint_neg = np.flip(confint_neg)
-        ccf = np.concatenate([ccf_neg, ccf])
-        confint = np.concatenate([confint_neg, confint])
+            ccf_neg[k - 1, :] = ccf_one_lag
+            confint_neg[k - 1, :] = confint_one_lag
+        ccf_neg = np.flip(ccf_neg, axis=0)
+        confint_neg = np.flip(confint_neg, axis=0)
+        ccf = np.concatenate([ccf_neg, ccf], axis=0)
+        confint = np.concatenate([confint_neg, confint], axis=0)
         if compute_pccf:
-            pccf = cross_correlations_ols(
-                x,
-                y,
-                cross_correlation,
-                nlags,
-                adjust_denominator=adjust_denominator,
-                negative_lags=negative_lags,
-            )
-    
+            pccf = np.zeros((2 * nlags + 1, n_sim), np.float64)
+            for i in range(n_sim):
+                pccf[:, i] = cross_correlations_ols(
+                    x[:, i],
+                    y[:, i],
+                    cross_correlations[i],
+                    nlags,
+                    adjust_denominator=adjust_denominator,
+                    negative_lags=negative_lags,
+                )
+
+    if n_sim == 1:
+        ccf = np.squeeze(ccf, axis=1)
+        confint = np.squeeze(confint, axis=1)
     if not compute_pccf:
         return ccf, confint
+    if n_sim == 1:
+        pccf = np.squeeze(pccf, axis=1)
     return ccf, pccf, confint
 
 
@@ -314,11 +339,14 @@ def plot_ccf_pccf(
     ccf,
     pccf,
     confint,
+    ccf_std,
+    pccf_std,
     alpha,
     x_equals_y=True,
     negative_lags=False,
     fit_type=None,
-    nb_params=2
+    nb_params=2,
+    n_sim=None
 ):
 
     y_margin = 0.05
@@ -430,6 +458,9 @@ def plot_ccf_pccf(
         ax1.set_xticklabels(x_ticks)
     else:
         ax1.scatter(x, ccf, color=color, marker="o", s=10)
+    if ccf_std is not None:
+        ccf_std = ccf_std[1:]
+        ax1.fill_between(x, ccf - ccf_std, ccf + ccf_std, alpha=0.2, label='Standard error ({} simulations)'.format(n_sim))
     if fit_type is not None:
         ax1.plot(x, ccf_fit, 'r--', color='seagreen', label=ccf_label)
     ax1.hlines(confint, x_min, x_max, color='crimson', linestyle='--', linewidth=0.6, label="{}% confidence interval".format(str_confidence_level))
@@ -458,35 +489,57 @@ def plot_ccf_pccf(
         ax2.set_ylabel(pccf_ylabel)
         ax2.set_ylim(min_y_value, max_y_value)
 
+    if pccf_std is not None:
+        pccf_std = pccf_std[1:]
+        ax2.fill_between(x, pccf - pccf_std, pccf + pccf_std, alpha=0.2)
+
+    if (ccf_std is None) and (pccf is not None):
+        bbox_to_anchor = (0.51, 0.9)
+        ncol = 1
+    elif (ccf_std is not None) and (pccf is not None):
+        bbox_to_anchor = (0.51, 0.9)
+        ncol = 2
+    elif (ccf_std is None) and (pccf is None):
+        bbox_to_anchor = (0.51, 0.87)
+        ncol = 1
+    elif (ccf_std is not None) and (pccf is None):
+        bbox_to_anchor = (0.51, 0.87)
+        ncol = 2
+
     if fit_type is not None:
         # Get handles and labels from both legends
         handles1, labels1 = ax1.get_legend_handles_labels()
-        handles = [handles1[1]]
-        labels = [labels1[1]]
-        handles_ccf = [handles1[0]]
-        labels_ccf = [labels1[0]]
+        if ccf_std is not None:
+            handles = [handles1[0], handles1[2]]
+            labels = [labels1[0], labels1[2]]
+            handles_ccf = [handles1[1]]
+            labels_ccf = [labels1[1]]
+        else:
+            handles = [handles1[1]]
+            labels = [labels1[1]]
+            handles_ccf = [handles1[0]]
+            labels_ccf = [labels1[0]]
         if pccf is not None:
             handles2, labels2 = ax2.get_legend_handles_labels()
             handles_pccf = [handles2[0]]
             labels_pccf = [labels2[0]]
             ax2.legend(handles_pccf, labels_pccf, loc='lower right')
-            ax1.legend(handles_ccf, labels_ccf, loc='lower right')
-            fig.legend(handles, labels, bbox_to_anchor=(0.65, 0.9))
-        else:
-            ax1.legend(handles + handles_ccf, labels + labels_ccf, loc='lower right')
+        ax1.legend(handles_ccf, labels_ccf, loc='lower right')
+        fig.legend(handles, labels, loc='upper center', bbox_to_anchor=bbox_to_anchor, ncol=ncol)
     else:
         handles, labels = ax1.get_legend_handles_labels()
-        fig.legend(handles, labels, bbox_to_anchor=(0.65, 0.9))
+        fig.legend(handles, labels, loc='upper center', bbox_to_anchor=bbox_to_anchor, ncol=ncol)
 
     if pccf is not None:
-        fig.suptitle(
-            "{}".format(suptitle),
-            fontsize=15,
-            y=0.943,
-        )
-        fig.subplots_adjust(hspace=0.2, top=0.81)
+        top = 0.81
     else:
-        ax1.set_title("{}".format(suptitle))
+        top = 0.72
+    fig.suptitle(
+        "{}".format(suptitle),
+        fontsize=15,
+        y=0.943,
+    )
+    fig.subplots_adjust(hspace=0.2, top=top)
 
     return fig
 
@@ -501,7 +554,12 @@ def plot_crosscorrelations(
     fit_type=None,
     nb_params=2,
 ):
-    
+    if len(x.shape) == 1:
+        x = x.reshape((x.shape[0], 1))
+    if len(y.shape) == 1:
+        y = y.reshape((y.shape[0], 1))
+    n_sim = x.shape[1]
+
     x_equals_y = np.array_equal(x, y)
     compute_pccf = nlags <= 100
     results = calculate_crosscorrelations(
@@ -520,16 +578,40 @@ def plot_crosscorrelations(
     else:
         ccf, confint = results
         pccf = None
+    if n_sim == 1:
+        ccf = ccf.reshape((ccf.shape[0], 1))
+        confint = confint.reshape((confint.shape[0], 1))
+        if compute_pccf:
+            pccf = pccf.reshape((pccf.shape[0], 1))
+
+    if n_sim > 1:
+        ccf_std = ccf.std(ddof=0, axis=1)
+        if compute_pccf:
+            pccf_std = pccf.std(ddof=0, axis=1)
+            pccf = pccf.mean(axis=1)
+        else:
+            pccf_std = None
+    else:
+        ccf_std = None
+        pccf_std = None
+        if compute_pccf:
+            pccf = pccf.mean(axis=1)
+
+    ccf = ccf.mean(axis=1)
+    confint = confint[:, 0]
 
     fig = plot_ccf_pccf(
         ccf,
         pccf,
         confint,
+        ccf_std,
+        pccf_std,
         alpha=alpha,
         x_equals_y=x_equals_y,
         negative_lags=negative_lags,
         fit_type=fit_type,
         nb_params=nb_params,
+        n_sim=n_sim,
     )
 
     return fig
