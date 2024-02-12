@@ -79,7 +79,7 @@ class ReturnsAutocorrelation(StylizedFact):
         self.lag = lag
 
     def is_verified(self, prices):
-        returns = np.diff(np.log(prices))
+        returns = np.diff(np.log(prices), axis=0)
         autocorrelation = np.correlate(
             returns[: -self.lag], returns[self.lag :], mode="full"
         )
@@ -111,7 +111,7 @@ class HeavyTailsKurtosis(StylizedFact):
         self.period = period
 
     def is_verified(self):
-        returns = np.diff(np.log(self.daily_prices))
+        returns = np.diff(np.log(self.daily_prices), axis=0)
         kurtosis = self.calculate_kurtosis(returns)
 
         return kurtosis > self.threshold
@@ -181,7 +181,7 @@ class GainLossSkew(StylizedFact):
         self.period = period
 
     def is_verified(self):
-        returns = np.diff(np.log(self.daily_prices))
+        returns = np.diff(np.log(self.daily_prices), axis=0)
         skewness = self.calculate_skewness(returns)
 
         return np.abs(skewness) > self.threshold
@@ -253,7 +253,7 @@ class VolatilityClustering(StylizedFact):
     def plot(
         self, fit_type: FitType = FitType.NONE, nb_params=2, alpha=0.05, return_obj: bool = False
     ):
-        returns = np.diff(np.log(self.daily_prices))
+        returns = np.diff(np.log(self.daily_prices), axis=0)
         x = np.abs(returns)
         fig = plot_crosscorrelations(x, x, nlags=self.lag, alpha=alpha, fit_type=fit_type, nb_params=nb_params)
 
@@ -263,7 +263,7 @@ class VolatilityClustering(StylizedFact):
             fig.show()
 
     def is_verified(self, prices, adjust_denominator=False):
-        returns = np.diff(np.log(prices))
+        returns = np.diff(np.log(prices), axis=0)
         x = np.abs(returns)
         y = x
         sd_x = x.std(ddof=0)
@@ -515,7 +515,6 @@ def stylized_fact_pipeline(model_name, model_params, num_steps, time_step, check
 
 
 def get_desc_plots(prices, daily=True, vols=None):
-
     if daily:
         daily_prices = prices
     else:
@@ -524,7 +523,7 @@ def get_desc_plots(prices, daily=True, vols=None):
         )
         daily_prices = prices[::int(NB_SAMPLE_PER_HOUR * NB_TRADING_HOURS_PER_DAY)]
 
-    daily_returns = np.diff(np.log(daily_prices))
+    daily_returns = np.diff(np.log(daily_prices), axis=0)
 
     fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [2, 1]})
 
