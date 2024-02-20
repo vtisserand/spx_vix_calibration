@@ -1,7 +1,7 @@
 import numpy as np
 from pysabr import Hagan2002LognormalSABR
 
-from .base_model import BaseModel
+from src.models.base_model import BaseModel
 
 
 class SABR_Model(BaseModel):
@@ -20,24 +20,26 @@ class SABR_Model(BaseModel):
         vol_init, rho, alpha = sabr_lognormal.fit(strikes, vols)
         self.vol_init, self.rho, self.alpha = vol_init, rho, alpha
 
-    def set_parameters(self, vol_init: float=0.25, rho: float=-0.6, alpha: float=2.5):
+    def set_parameters(
+        self, vol_init: float = 0.25, rho: float = -0.6, alpha: float = 2.5
+    ):
         self.vol_init, self.rho, self.alpha = vol_init, rho, alpha
 
     def generate_paths(self, n_steps, length):
         # Discretization grid
         dt = length / n_steps
 
-        dw = np.sqrt(dt)*np.random.normal(0, 1, size=n_steps)
+        dw = np.sqrt(dt) * np.random.normal(0, 1, size=n_steps)
 
         dz = np.zeros_like(dw)
         dz[0] = dw[0]
         for i in range(1, n_steps):
             # Update the correlation
-            dz[i] = self.rho * dz[i-1] + np.sqrt(1 - self.rho**2) * dw[i]
-        
+            dz[i] = self.rho * dz[i - 1] + np.sqrt(1 - self.rho**2) * dw[i]
+
         F = np.zeros(n_steps)
-        vol = np.zeros_like(F) 
-    
+        vol = np.zeros_like(F)
+
         F[0] = self.initial_price
         vol[0] = self.vol_init
 
@@ -47,4 +49,3 @@ class SABR_Model(BaseModel):
             F[t] = F[t - 1] + vol[t] * dw[t]
 
         return F
-
