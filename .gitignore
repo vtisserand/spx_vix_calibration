@@ -8,6 +8,7 @@ __pycache__/
 
 report/output/
 .github/
+notes.text
 
 # Ignore data
 data/
