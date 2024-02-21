@@ -2,6 +2,7 @@ import numpy as np
 from scipy.special import gamma
 
 from src.models.base_model import BaseModel
+from src.models.kernels import KernelFlavour
 
 
 class qHeston(BaseModel):
@@ -94,3 +95,8 @@ class qHeston(BaseModel):
         prices = np.exp(logSt)
 
         return prices
+    
+    def generate_VIX_levels(self, maturity: float=1/12):
+        """
+        We approximate an integrand involving the resolvent to generate coherent VIX data.
+        """
