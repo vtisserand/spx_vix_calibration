@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.special import gamma 
 
 from src.models.base_model import BaseModel
 

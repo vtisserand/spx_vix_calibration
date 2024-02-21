@@ -48,7 +48,7 @@ class rBergomi(BaseModel):
         # Uncorrelated brownians
         w1, w2 = np.random.normal(0, 1, (n_steps*length, n_sims)), np.random.normal(0, 1, (n_steps*length, n_sims))
 
-        tt = np.linspace(0,length,n_steps*length+1)
+        tt = np.linspace(0,n_steps*length,n_steps*length+1)
         dt = 1/n_steps
         
         # Euler 3 scheme for variance process
