@@ -112,13 +112,12 @@ class qHeston(BaseModel):
         # We first need an instantaneous variance trajectory, beware first value is 0
         _, variance = self.generate_paths(n_steps=n_steps+1, length=1)
 
-        for index, u in enumerate(np.linspace(maturity, maturity+delta, n_steps)):
-            # First, compute the mean resolvent
-            times = np.linspace(0, maturity+delta-u, 100)[1:-1] # Divide the interval [0, t] into 100 points, issues at ends
-            resolvent_values = np.array([self.resolvent(t=time, kernel=kernel) for time in times])  # Compute resolvent values at each point
+        for index, u in enumerate(np.linspace(maturity, maturity+delta, n_steps+1)[:-1]): # Issues at end, remove last value
+            # Then, compute the mean resolvent
+            times = np.linspace(0, maturity+delta-u, 100)[1:] # Divide the interval [0, t] into 100 points, set 0->0
+            resolvent_values = np.array([self.resolvent(t=time, kernel=kernel) for time in times])
             resolvent_bar = trapz(resolvent_values, times)
 
-            print(resolvent_bar)
             integral += (1 - resolvent_bar) * variance[index+1]
 
         return (100 ** 2) / delta * integral
