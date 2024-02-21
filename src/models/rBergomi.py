@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.special import gamma 
 
 from src.models.base_model import BaseModel
 
@@ -14,24 +13,24 @@ class rBergomi(BaseModel):
 
     def set_parameters(
         self,
-        vol_init: float = 0.25,
-        mu: float = 0.1,
-        kappa: float = 1.1,
-        theta: float = 0.12,
-        sigma: float = 0.80,
-        rho: float = -0.7,
+        vol_init: float=0.25,
+        H: float=0.2,
+        eta: float=0.7,
+        eps: float=1/52,
+        rho: float=-0.6,
+        fvc: float=0.35
     ):
         """
         Set of coherent dummy parameters to play around without market data, from the original rough Heston paper.
         """
         (
             self.vol_init,
-            self.mu,
-            self.kappa,
-            self.theta,
-            self.sigma,
+            self.H,
+            self.eta,
+            self.eps,
             self.rho,
-        ) = vol_init, mu, kappa, theta, sigma, rho
+            self.fvc
+        ) = vol_init, H, eta, eps, rho, fvc
 
 
     def fit(
@@ -42,9 +41,34 @@ class rBergomi(BaseModel):
         maturity: float = 1,
     ):
         """
-        Fits a Heston model on a surface slice by minimizing the MSE between market prices and model prices.
         """
         pass
 
     def generate_paths(self, n_steps: int, length: int, n_sims: int=1):
-        pass
+        # Uncorrelated brownians
+        w1, w2 = np.random.normal(0, 1, (n_steps*length, n_sims)), np.random.normal(0, 1, (n_steps*length, n_sims))
+
+        tt = np.linspace(0,length,n_steps*length+1)
+        dt = 1/n_steps
+        
+        # Euler 3 scheme for variance process
+        Xt = np.zeros(n_sims).reshape(1,-1)
+        for j in range(n_steps*length):
+            tj = tt[j+1]
+            ti_s = tt[:j+2]
+            std_ji = np.sqrt(((tj-ti_s[:-1])**(2*self.H)-(tj-ti_s[1:])**(2*self.H))/(2*self.H))
+            temp = np.sum(std_ji.reshape(-1,1)*w1[:j+1],axis=0)
+            Xt=np.append(Xt,temp.reshape(1,-1),axis=0)
+
+        drift_rbergomi = -0.25*self.eta**2*tt**(2*self.H)
+        volatility = np.exp(0.5*self.eta*np.sqrt(2*self.H)*Xt+drift_rbergomi.reshape(-1,1))
+        volatility = np.sqrt(self.fvc)*volatility
+
+        log_S = np.ones(n_sims).reshape(1,-1)*np.log(self.initial_price)
+        for j in range(n_steps*length):
+            log_S_next = log_S[j]-0.5*volatility[j]**2*dt+volatility[j]*np.sqrt(dt)*\
+                (self.rho*w1[j]+np.sqrt(1-self.rho**2)*w2[j])
+            log_S=np.append(log_S,log_S_next.reshape(1,-1),axis=0)
+
+        return np.exp(log_S)
+
