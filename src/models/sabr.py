@@ -25,7 +25,7 @@ class SABR_Model(BaseModel):
     ):
         self.vol_init, self.rho, self.alpha = vol_init, rho, alpha
 
-    def generate_paths(self, n_steps, length):
+    def generate_paths(self, n_steps: int, length: int, n_sims: int=1):
         # Discretization grid
         dt = length / n_steps
 
