@@ -98,9 +98,22 @@ class qHeston(BaseModel):
         return prices, Vt
     
     def resolvent(self, t, kernel: KernelFlavour):
+        """
+        For the quadratic Volterra Heston models, we are interested in the resolvent of -aK^2.
+        For the rough kernel: with c=-a \eta^2 \Gamma(2H), alpha=2H, R(t)=ct^(alpha-1) E_{alpha, alpha}(-ct^(alpha)),
+        For the path-dependent kernel: mutatis mutandis t, t+eps,
+        For the one-factor kernel: c=-a \eta^2 \epsilon^(2H-1), \lambda=(1_2H) / \epsilon, R(t)=c e^{-(\lambda+c)t}.
+        """
         if kernel == KernelFlavour.ROUGH:
             c = -self.a * self.eta**2 * gamma(2*self.H)
             return c * t**(2*self.H-1) * mittag_leffler(alpha=2*self.H, beta=2*self.H, z=-c*t**(2*self.H))
+        elif kernel == KernelFlavour.PATH_DEPENDENT:
+            c = -self.a * self.eta**2 * gamma(2*self.H)
+            return c * (t+self.eps)**(2*self.H-1) * mittag_leffler(alpha=2*self.H, beta=2*self.H, z=-c*(t+self.eps)**(2*self.H))
+        elif kernel == KernelFlavour.ONE_FACTOR:
+            c = -self.a * self.eta**2 * self.eps ** (2*self.H - 1)
+            lamb = (1-2*H)/self.eps
+            return c*np.exp(-(lamb+c)*t)
 
     def generate_VIX_levels(self, maturity: float=1/12, delta: float=1/12, kernel: KernelFlavour=KernelFlavour.ROUGH, n_steps: int=1000,):
         """
