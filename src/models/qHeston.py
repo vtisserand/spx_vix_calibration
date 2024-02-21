@@ -66,7 +66,7 @@ class qHeston(BaseModel):
 
         tt = np.linspace(0, n_steps* length, n_steps * length + 1)
         dt = 1 / n_steps
-        
+
         w_tilde = (1 / gamma(self.H + 0.5)) * np.sqrt(
             (dt ** (2 * self.H) * ((tt[1:] ** (2 * self.H)) - (tt[:-1] ** (2 * self.H))))
             / (2 * self.H)
@@ -164,4 +164,4 @@ class qHeston(BaseModel):
 
             integral += (1 - resolvent_bar) * variance[index + 1]
 
-        return (100**2) / delta * integral
+        return (100**2) / delta * integral * (1/n_steps)

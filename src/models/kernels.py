@@ -11,11 +11,12 @@ class KernelFlavour:
     ONE_FACTOR = "one_factor"
     TWO_FACTOR = "two_factor"
 
-def mittag_leffler(alpha, beta, z):
+def mittag_leffler(alpha: float, beta: float, z:float, n: int=30):
     """
-    Compute the Mittag-Leffler function E_alpha,beta(z). Is this a proxy good enough?
+    Compute the Mittag-Leffler function E_alpha,beta(z). 
+    Proxy good enough with first n=30 components, but let's keep this in mind.
     """
-    return sum(z**k / gamma(alpha*k + beta) for k in range(100))
+    return sum(z**k / gamma(alpha*k + beta) for k in range(n))
 
 def rough_kernel(
     t: float,
