@@ -1,8 +1,9 @@
 import numpy as np
 from scipy.special import gamma
+from scipy.integrate import trapz
 
 from src.models.base_model import BaseModel
-from src.models.kernels import KernelFlavour
+from src.models.kernels import KernelFlavour, mittag_leffler
 
 
 class qHeston(BaseModel):
@@ -94,9 +95,34 @@ class qHeston(BaseModel):
         logSt = np.cumsum(logSt_increment, axis=0)
         prices = np.exp(logSt)
 
-        return prices
+        return prices, Vt
     
-    def generate_VIX_levels(self, maturity: float=1/12):
+    def resolvent(self, t, kernel: KernelFlavour):
+        if kernel == KernelFlavour.ROUGH:
+            c = -self.a * self.eta**2 * gamma(2*self.H)
+            return c * t**(2*self.H-1) * mittag_leffler(alpha=2*self.H, beta=2*self.H, z=-c*t**(2*self.H))
+
+    def generate_VIX_levels(self, maturity: float=1/12, delta: float=1/12, kernel: KernelFlavour=KernelFlavour.ROUGH, n_steps: int=1000,):
         """
         We approximate an integrand involving the resolvent to generate coherent VIX data.
+
+        \mbox{VIX}_T^2 = \frac{100^2}{\Delta} \int_T^{T+\Delta} \left[1-\bar{R}(\Delta - u)\right]V_u du
         """
+        integral = 0
+        # We first need an instantaneous variance trajectory, beware first value is 0
+        _, variance = self.generate_paths(n_steps=n_steps+1, length=1)
+
+        for index, u in enumerate(np.linspace(maturity, maturity+delta, n_steps)):
+            # First, compute the mean resolvent
+            times = np.linspace(0, maturity+delta-u, 100)[1:-1] # Divide the interval [0, t] into 100 points, issues at ends
+            resolvent_values = np.array([self.resolvent(t=time, kernel=kernel) for time in times])  # Compute resolvent values at each point
+            resolvent_bar = trapz(resolvent_values, times)
+
+            print(resolvent_bar)
+            integral += (1 - resolvent_bar) * variance[index+1]
+
+        return (100 ** 2) / delta * integral
+
+
+
+
