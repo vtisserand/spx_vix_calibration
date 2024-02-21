@@ -86,7 +86,6 @@ class Heston(BaseModel):
             xi = kappa - sigma * rho * u * 1j
             d = sqrt((rho * sigma * u * 1j - xi) ** 2 - sigma ** 2 * (2 * u * 1j - u ** 2))
             g = (xi - rho * sigma * u * 1j - d) / (xi - rho * sigma * u * 1j + d)
-            exponent = -d * t
             D = (xi - rho * sigma * u * 1j - d) / sigma ** 2 * ((1 - exp(-d * t)) / (1 - g * exp(-d * t)))
             C = kappa * (theta - sigma ** 2 / 2) * ((1 - exp(-d * t)) / (1 - g * exp(-d * t)))
             return exp(C + D * self.vol_init + 1j * u * (log(forward_price) + (self.mu - 0.5 * self.vol_init) * t))
@@ -106,7 +105,7 @@ class Heston(BaseModel):
 
         return option_price
 
-    def generate_paths(self, n_steps, length):
+    def generate_paths(self, n_steps: int, length: int, n_sims: int=1):
         dt = length / n_steps
         cov_matrix = np.array(
             [[dt, dt * self.rho], [dt * self.rho, dt]]

@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.special import gamma 
 
 from src.models.base_model import BaseModel
 
@@ -33,8 +34,8 @@ class rHeston(BaseModel):
             self.rho,
         ) = vol_init, mu, kappa, theta, sigma, rho
 
-    def rough_kernel(self, eta: float):
-        pass
+    def rough_kernel(self, t: float, H: float, eta: float):
+        return eta * t ** (H-1/2)
 
 
     def fit(
@@ -49,5 +50,5 @@ class rHeston(BaseModel):
         """
         pass
 
-    def generate_paths(self, n_steps, length):
+    def generate_paths(self, n_steps: int, length: int, n_sims: int=1):
         pass
