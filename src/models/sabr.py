@@ -20,6 +20,11 @@ class SABR_Model(BaseModel):
         vol_init, rho, alpha = sabr_lognormal.fit(strikes, vols)
         self.vol_init, self.rho, self.alpha = vol_init, rho, alpha
 
+    def __repr__(self):
+        dynamics = "This is an instance of a SABR model."
+        params = f"It has parameters vol_init: {self.vol_init}, alpha: {self.alpha}, beta: 1.0 (fixed), rho: {self.rho}"
+        return dynamics + '\n' + params
+
     def set_parameters(
         self, vol_init: float = 0.25, rho: float = -0.6, alpha: float = 2.5
     ):

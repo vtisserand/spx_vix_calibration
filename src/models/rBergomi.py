@@ -11,6 +11,11 @@ class rBergomi(BaseModel):
         super().__init__(initial_price)
         self.set_parameters()
 
+    def __repr__(self):
+        dynamics = "This is an instance of a rough Bergomi model."
+        params = f"It has parameters vol_init: {self.vol_init}, H: {self.H}, eta: {self.eta}, eps: {self.eps}, rho: {self.rho}, fvc: {self.fvc}"
+        return dynamics + '\n' + params
+
     def set_parameters(
         self,
         vol_init: float=0.25,

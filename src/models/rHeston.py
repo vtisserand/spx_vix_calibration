@@ -12,6 +12,11 @@ class rHeston(BaseModel):
         super().__init__(initial_price)
         self.set_parameters()
 
+    def __repr__(self):
+        dynamics = "This is an instance of a rough Heston model."
+        params = f"It has parameters vol_init: {self.vol_init}, mu: {self.mu}, kappa: {self.kappa}, theta: {self.theta}, sigma: {self.sigma}, rho: {self.rho}"
+        return dynamics + '\n' + params
+
     def set_parameters(
         self,
         vol_init: float = 0.25,
