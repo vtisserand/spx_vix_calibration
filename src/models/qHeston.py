@@ -65,14 +65,14 @@ class qHeston(BaseModel):
 
         # Initiate rough Heston Z process and quadratic form instantaneous variance V
         Zt = np.full((1, n_sims), self.fvc)
-        Vt = np.zeros(n_sims).reshape(1, -1)
+        Vt = np.full((1, n_sims), self.a*(self.fvc - self.b)**2 + self.c)
         Ztj = Zt[0, :]
         Vtj = Vt[0, :]
 
         tt = np.linspace(0, n_steps* length, n_steps * length + 1)
         dt = 1 / n_steps
 
-        w_tilde = (1 / gamma(self.H + 0.5)) * np.sqrt(
+        w_tilde = np.sqrt(
             (dt ** (2 * self.H) * ((tt[1:] ** (2 * self.H)) - (tt[:-1] ** (2 * self.H))))
             / (2 * self.H)
         )
