@@ -34,3 +34,28 @@ SPX_IVS = [
     [0.32, 0.28, 0.24, 0.20, 0.19, 0.18, 0.19, 0.23],
     [0.32, 0.25, 0.22, 0.17, 0.18, 0.18, 0.19, 0.23],
 ]
+
+# To plot:
+# 
+# import numpy as np
+# import matplotlib.pyplot as plt
+
+# T = np.array(SPX_T)
+# K = np.array(SPX_K)
+# ivs = np.array(SPX_IVS)
+
+# X, Y = np.meshgrid(K, T)
+# fig = plt.figure(figsize=(10, 6))
+# ax = fig.add_subplot(111, projection='3d')
+# ax.plot_surface(X, Y, ivs, cmap='coolwarm')
+# ax.set_xlabel('Strikes (K)')
+# ax.set_ylabel('Maturities (T)')
+# ax.set_zlabel('Implied Volatility')
+# ax.set_title('Implied Volatility Surface')
+
+# plt.show()
+
+# import pandas as pd
+
+# SPX_MOCK = pd.DataFrame(SPX_IVS, index=SPX_T, columns=SPX_K)
+# SPX_MOCK = SPX_MOCK.stack().reset_index(name='iv').rename(columns={'level_0': 'T', 'level_1':'K'})
