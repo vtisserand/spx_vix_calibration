@@ -17,12 +17,11 @@ class qHeston(BaseModel):
 
     def __repr__(self):
         dynamics = "This is an instance of a quadratic Volterra Heston model."
-        params = f"It has parameters vol_init: {self.vol_init}, a: {self.a}, b: {self.b}, c: {self.c}, H: {self.H}, eta: {self.eta}, eps: {self.eps}, rho: {self.rho}, fvc: {self.fvc}"
+        params = f"It has parameters a: {self.a}, b: {self.b}, c: {self.c}, H: {self.H}, eta: {self.eta}, eps: {self.eps}, rho: {self.rho}, fvc: {self.fvc}"
         return dynamics + '\n' + params
 
     def set_parameters(
         self,
-        vol_init: float = 0.25,
         a: float = 0.384,
         b: float = 0.095,
         c: float = 0.0025,
@@ -36,7 +35,6 @@ class qHeston(BaseModel):
         Set of coherent dummy parameters to play around without market data, from the original rough Heston paper.
         """
         (
-            self.vol_init,
             self.a,
             self.b,
             self.c,
@@ -45,7 +43,7 @@ class qHeston(BaseModel):
             self.eps,
             self.rho,
             self.fvc,
-        ) = vol_init, a, b, c, H, eta, eps, rho, fvc
+        ) = a, b, c, H, eta, eps, rho, fvc
         # For the two-factor kernel, set aside for now:
         self.eta1, self.eta2 = eta, eta
         self.H1, self.H2 = H, H
