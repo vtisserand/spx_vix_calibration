@@ -63,13 +63,15 @@ class qHeston(BaseModel):
 
     # We define the w_j^i for each kernel.
     def _std_ji_rough(self, tj: float, ti_s: np.ndarray | list) -> np.ndarray:
-        np.sqrt((self.eta**2) * ((tj-ti_s[:-1])**(2*self.H) - (tj-ti_s[1:])**(2*self.H)) / (2*self.H))
+        std_ji = np.sqrt((self.eta**2) * ((tj-ti_s[:-1])**(2*self.H) - (tj-ti_s[1:])**(2*self.H)) / (2*self.H))
+        return std_ji
 
     def _std_ji_path_dependent(self, tj: float, ti_s: np.ndarray | list) -> np.ndarray:
         if self.H == 0:
             std_ji = np.sqrt((self.eta**2) * (np.log(tj-ti_s[:-1]+self.eps) - np.log(tj-ti_s[1:]+self.eps)))
         else:
             std_ji = np.sqrt((self.eta**2) * ((tj-ti_s[:-1]+self.eps)**(2*self.H) - (tj-ti_s[1:]+self.eps)**(2*self.H)) / (2*self.H))
+        return std_ji
 
     def _std_ji_one_factor(self, tj: float, ti_s: np.ndarray | list) -> np.ndarray:
         return self.eta * self.eps ** self.H * np.sqrt((np.exp((2*self.H-1)*(tj-ti_s[:-1])/self.eps) - np.exp((2*self.H-1)*(tj-ti_s[1:])/self.eps)) / (2*self.H-1))
