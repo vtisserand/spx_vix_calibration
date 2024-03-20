@@ -45,6 +45,10 @@ class qHeston(BaseModel):
             self.rho,
             self.fvc,
         ) = vol_init, a, b, c, H, eta, eps, rho, fvc
+        # For the two-factor kernel, set aside for now:
+        self.eta1, self.eta2 = eta, eta
+        self.H1, self.H2 = H, H
+        self.eps1, self.eps2 = eps, eps
 
     def fit(
         self,
@@ -54,6 +58,46 @@ class qHeston(BaseModel):
         maturity: float = 1,
     ):
         """ """
+        pass
+
+    # We define the w_j^i for each kernel.
+    def _std_ji_rough(self, tj: float, ti_s: np.ndarray | list) -> np.ndarray:
+        np.sqrt((self.eta**2) * ((tj-ti_s[:-1])**(2*self.H) - (tj-ti_s[1:])**(2*self.H)) / (2*self.H))
+
+    def _std_ji_path_dependent(self, tj: float, ti_s: np.ndarray | list) -> np.ndarray:
+        if H == 0:
+            std_ji = np.sqrt((self.eta**2) * (np.log(tj-ti_s[:-1]+self.eps) - np.log(tj-ti_s[1:]+self.eps)))
+        else:
+            std_ji = np.sqrt((self.eta**2) * ((tj-ti_s[:-1]+self.eps)**(2*self.H) - (tj-ti_s[1:]+self.eps)**(2*self.H)) / (2*self.H))
+
+    def _std_ji_one_factor(self, tj: float, ti_s: np.ndarray | list) -> np.ndarray:
+        return self.eta * self.eps ** self.H * np.sqrt((np.exp((2*self.H-1)*(tj-ti_s[:-1])/self.eps) - np.exp((2*self.H-1)*(tj-ti_s[1:])/self.eps)) / (2*self.H-1))
+    
+    def _std_ji_two_factor(self, tj: float, ti_s: np.ndarray | list) -> np.ndarray:
+        acst = (self.eta1**2) * (self.eps1**(2*self.H1)) / (2*self.H1-1)
+        bcst = (self.eta2**2) * (self.eps2**(2*self.H2)) / (2*self.H2-1)
+        gamma = (1/self.eps1)*(self.H1-0.5)+(1/self.eps2)*(self.H2-0.5)
+        if gamma == 0:
+            ccst = 2*self.eta1*self.eta2*(self.eps1**(self.H1-0.5))*(self.eps2**(self.H2-0.5))
+        else:
+            ccst = 2*self.eta1*self.eta2*(self.eps1**(self.H1-0.5))*(self.eps2**(self.H2-0.5)) / gamma
+
+        a_ji = acst * (np.exp((2*self.H1-1)*(tj-ti_s[:-1])/self.eps1) - np.exp((2*self.H1-1)*(tj-ti_s[1:])/self.eps1))
+        b_ji = bcst * (np.exp((2*self.H2-1)*(tj-ti_s[:-1])/self.eps2) - np.exp((2*self.H2-1)*(tj-ti_s[1:])/self.eps2))
+        if gamma == 0:
+            c_ji = ccst*(ti_s[1:]-ti_s[:-1])
+        else:
+            c_ji = ccst*(np.exp(gamma * (tj-ti_s[:-1])) - np.exp(gamma * (tj-ti_s[1:])))
+
+        return np.sqrt(a_ji+b_ji+c_ji)
+    
+    def _R_bar_rough(self):
+        pass
+    def _R_bar_path_dependent(self):
+        pass
+    def _R_bar_one_factor(self):
+        pass
+    def _R_bar_two_factor(self):
         pass
 
     def generate_paths(self, n_steps: int, length: int, n_sims: int = 1):

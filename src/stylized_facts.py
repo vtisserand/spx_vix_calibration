@@ -497,6 +497,101 @@ class ZumbachEffect(StylizedFact):
         pass
 
 
+
+class ZumbachEffectBis(StylizedFact):
+    def __init__(self,
+                 prices: ndarray | list,
+                 daily: bool = True,
+                 vols: np.ndarray | list = None,
+                 lag: int=10,
+                 threshold: float=0.5) -> None:
+        super().__init__(prices, daily=daily, vols=vols)
+        self.threshold = threshold
+        self.lag = lag
+
+    def compute_cross_correlation(self):
+        returns = np.diff(np.log(self.daily_prices), axis=0)
+        square_returns = np.square(returns)
+        if self.n_sim == 1:
+            square_returns = square_returns.reshape((square_returns.shape[0], 1))
+            vols = self.vols.reshape((self.vols.shape[0], 1))
+        else:
+            vols = self.vols
+
+        correlations = np.zeros((square_returns.shape[0] - self.lag, self.n_sim))
+        normalization = np.zeros((self.n_sim))
+        for i in range(self.n_sim):
+            correlations[:, i] = signal.correlate(
+                square_returns[: -self.lag, i],
+                np.where(np.isnan(vols[:, i]), 0, vols[:, i])[self.lag :],
+                mode="same",
+            )
+
+        if len(vols) > len(square_returns):
+            vols = vols[1:]
+
+        for i in range(self.n_sim):
+            normalization[i] = np.correlate(
+                square_returns[:, i], np.where(np.isnan(vols[:, i]), 0, vols[:, i])
+            ) # Normalize
+        zumbach_effect_corr = correlations / normalization
+
+        return zumbach_effect_corr
+
+    def plot(self,
+             window: int = 200,
+             tra: bool = False,
+             show_confidence_bounds: bool = True,
+             return_obj: bool = False):
+        fig, ax = plt.subplots()
+
+        correlation = self.compute_cross_correlation()
+
+        # Trim to actually get cross-correlation
+        corr = correlation[len(correlation) // 2 + self.lag :][:window]
+        if tra:
+            corr_tra = correlation[: len(correlation) // 2 + self.lag - 1][::-1][
+                :window
+            ]
+            min_length = min(len(corr), len(corr_tra))
+            corr = corr[:min_length, :]
+            corr_tra = corr_tra[:min_length, :]
+            corr_tra_std = corr_tra.std(ddof=0, axis=1)
+            corr_tra = corr_tra.mean(axis=1)
+        corr_std = corr.std(ddof=0, axis=1)
+        if tra:
+            corr_std = np.concatenate([corr_std.reshape(len(corr_std), 1),
+                corr_tra_std.reshape(len(corr_tra_std), 1)], axis=1)
+            corr_std = corr_std.max(axis=1)
+        corr = corr.mean(axis=1)
+        time_axis = np.arange(corr.shape[0])
+
+        # Plot the correlation values
+        ax.scatter(time_axis, corr-corr_tra, label="diffs", color="blue")
+
+
+        if (self.n_sim > 1) and show_confidence_bounds:
+            ax.fill_between(
+                time_axis,
+                corr - corr_std,
+                corr + corr_std,
+                alpha=0.2,
+                label='Standard error ({} simulations)'.format(self.n_sim)
+            )
+
+        ax.set_title("Cross-Correlation of\n Zumbach effect")
+        ax.legend()
+        ax.grid(True)
+        if return_obj:
+            return fig
+        else:
+            fig.show()
+
+    def is_verified(self):
+        pass
+
+
+
 def stylized_fact_pipeline(model_name, model_params, num_steps, time_step, checkers):
     # Generate trajectory using the specified model
     model = globals()[model_name]
