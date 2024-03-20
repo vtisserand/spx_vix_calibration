@@ -65,7 +65,7 @@ class qHeston(BaseModel):
         np.sqrt((self.eta**2) * ((tj-ti_s[:-1])**(2*self.H) - (tj-ti_s[1:])**(2*self.H)) / (2*self.H))
 
     def _std_ji_path_dependent(self, tj: float, ti_s: np.ndarray | list) -> np.ndarray:
-        if H == 0:
+        if self.H == 0:
             std_ji = np.sqrt((self.eta**2) * (np.log(tj-ti_s[:-1]+self.eps) - np.log(tj-ti_s[1:]+self.eps)))
         else:
             std_ji = np.sqrt((self.eta**2) * ((tj-ti_s[:-1]+self.eps)**(2*self.H) - (tj-ti_s[1:]+self.eps)**(2*self.H)) / (2*self.H))
