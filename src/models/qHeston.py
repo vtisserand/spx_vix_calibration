@@ -1,4 +1,5 @@
 import numpy as np
+import warnings
 from scipy.special import gamma
 from scipy.integrate import trapz
 
@@ -100,7 +101,59 @@ class qHeston(BaseModel):
     def _R_bar_two_factor(self):
         pass
 
-    def generate_paths(self, n_steps: int, length: int, n_sims: int = 1):
+
+    def generate_paths(self, n_steps: int, length: int = 1, n_sims: int = 1, kernel: KernelFlavour=KernelFlavour.ROUGH):
+        # Uncorrelated brownians
+        w1, w2 = (
+            np.random.normal(0, 1, (n_steps * length, n_sims)),
+            np.random.normal(0, 1, (n_steps * length, n_sims)),
+        )
+        tt = np.linspace(0, n_steps * length, n_steps * length + 1)
+
+        # Initiate rough Heston Z process and quadratic form instantaneous variance V
+        dt = tt[1] - tt[0] # Uniform grid
+        N_sims = w1.shape[1]
+        Z = np.zeros(N_sims).reshape(1,-1)
+        V = np.zeros(N_sims).reshape(1,-1)
+        Z[0] = self.fvc
+        V[0] = self.a*(self.fvc-self.b)**2+self.c
+
+
+        for j in range(n_steps * length):
+            tj = tt[j+1]
+            ti_s = tt[:j+2]
+
+            if kernel == KernelFlavour.ROUGH:
+                std_ji = self._std_ji_rough(tj, ti_s)
+            elif kernel == KernelFlavour.PATH_DEPENDENT:
+                std_ji = self._std_ji_path_dependent(tj, ti_s)
+            elif kernel == KernelFlavour.ONE_FACTOR:
+                std_ji = self._std_ji_one_factor(tj, ti_s)
+            elif kernel == KernelFlavour.ONE_FACTOR:
+                std_ji = self._std_ji_two_factor(tj, ti_s)
+            else:
+                warnings.warn("Unrecognized kernel type. Please provide a valid kernel type from KernelFlavour enum.", UserWarning)
+                raise ValueError("Invalid kernel type provided.")
+            
+            Z_temp = self.fvc + np.sum(std_ji.reshape(-1, 1)*w1[:j+1]*np.sqrt(V[:j+1]), axis=0)
+            V_temp = self.a*((Z_temp-self.b)**2)+self.c
+            Z = np.append(Z, Z_temp.reshape(1, -1), axis=0)
+            V = np.append(V, V_temp.reshape(1, -1), axis=0)
+
+
+        # Correlate the brownians with rho
+        correlated_brownian = self.rho * w1 + np.sqrt(1 - self.rho**2) * w2
+        logSt_increment = -0.5 * dt * V[:-1, :] + np.sqrt(dt) * np.multiply(np.sqrt(V[:-1, :]), correlated_brownian)
+        logSt_increment = np.concatenate([np.full((1, n_sims), np.log(self.initial_price)), logSt_increment], axis=0)
+        logSt = np.cumsum(logSt_increment, axis=0)
+        St = np.exp(logSt)
+
+        self.grid = tt # Needed to match grids with VIX levels computations
+
+        return St, V
+
+
+    def generate_paths_old(self, n_steps: int, length: int, n_sims: int = 1):
         # Uncorrelated brownians
         w1, w2 = (
             np.random.normal(0, 1, (n_steps * length, n_sims)),
@@ -151,37 +204,40 @@ class qHeston(BaseModel):
         logSt = np.cumsum(logSt_increment, axis=0)
         prices = np.exp(logSt)
 
+        # TODO
+        self.grid = tt # Needed to match grids with VIX levels computations
+
         return prices, Vt
 
-    def resolvent(self, t, kernel: KernelFlavour):
-        """
-        For the quadratic Volterra Heston models, we are interested in the resolvent of -aK^2.
-        For the rough kernel: with c=-a \eta^2 \Gamma(2H), alpha=2H, R(t)=ct^(alpha-1) E_{alpha, alpha}(-ct^(alpha)),
-        For the path-dependent kernel: mutatis mutandis t, t+eps,
-        For the one-factor kernel: c=-a \eta^2 \epsilon^(2H-1), \lambda=(1_2H) / \epsilon, R(t)=c e^{-(\lambda+c)t}.
-        """
-        if kernel == KernelFlavour.ROUGH:
-            c = -self.a * self.eta**2 * gamma(2 * self.H)
-            return (
-                c * t ** (2 * self.H - 1)
-                * mittag_leffler(
-                    alpha=2 * self.H, beta=2 * self.H, z=-c * t ** (2 * self.H)
-                )
-            )
-        elif kernel == KernelFlavour.PATH_DEPENDENT:
-            c = -self.a * self.eta**2 * gamma(2 * self.H)
-            return (
-                c * (t + self.eps) ** (2 * self.H - 1)
-                * mittag_leffler(
-                    alpha=2 * self.H,
-                    beta=2 * self.H,
-                    z=-c * (t + self.eps) ** (2 * self.H),
-                )
-            )
-        elif kernel == KernelFlavour.ONE_FACTOR:
-            c = -self.a * self.eta**2 * self.eps ** (2 * self.H - 1)
-            lamb = (1 - 2 * self.H) / self.eps
-            return c * np.exp(-(lamb + c) * t)
+    # def resolvent(self, t, kernel: KernelFlavour):
+    #     """
+    #     For the quadratic Volterra Heston models, we are interested in the resolvent of -aK^2.
+    #     For the rough kernel: with c=-a \eta^2 \Gamma(2H), alpha=2H, R(t)=ct^(alpha-1) E_{alpha, alpha}(-ct^(alpha)),
+    #     For the path-dependent kernel: mutatis mutandis t, t+eps,
+    #     For the one-factor kernel: c=-a \eta^2 \epsilon^(2H-1), \lambda=(1_2H) / \epsilon, R(t)=c e^{-(\lambda+c)t}.
+    #     """
+    #     if kernel == KernelFlavour.ROUGH:
+    #         c = -self.a * self.eta**2 * gamma(2 * self.H)
+    #         return (
+    #             c * t ** (2 * self.H - 1)
+    #             * mittag_leffler(
+    #                 alpha=2 * self.H, beta=2 * self.H, z=-c * t ** (2 * self.H)
+    #             )
+    #         )
+    #     elif kernel == KernelFlavour.PATH_DEPENDENT:
+    #         c = -self.a * self.eta**2 * gamma(2 * self.H)
+    #         return (
+    #             c * (t + self.eps) ** (2 * self.H - 1)
+    #             * mittag_leffler(
+    #                 alpha=2 * self.H,
+    #                 beta=2 * self.H,
+    #                 z=-c * (t + self.eps) ** (2 * self.H),
+    #             )
+    #         )
+    #     elif kernel == KernelFlavour.ONE_FACTOR:
+    #         c = -self.a * self.eta**2 * self.eps ** (2 * self.H - 1)
+    #         lamb = (1 - 2 * self.H) / self.eps
+    #         return c * np.exp(-(lamb + c) * t)
 
     def generate_VIX_levels(
         self,
