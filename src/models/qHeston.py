@@ -1,7 +1,10 @@
 import numpy as np
 import warnings
 from scipy.special import gamma
-from scipy.integrate import trapz
+from scipy.integrate import trapz, cumulative_trapezoid
+import mpmath as mp
+from mpmath import invertlaplace
+from py_vollib.black_scholes.implied_volatility import implied_volatility
 
 from src.models.base_model import BaseModel
 from src.models.kernels import KernelFlavour, mittag_leffler
@@ -25,11 +28,11 @@ class qHeston(BaseModel):
         a: float = 0.384,
         b: float = 0.095,
         c: float = 0.0025,
-        H: float = 0.2,
+        H: float = 0.08,
         eta: float = 0.7,
         eps: float = 1 / 52,
         rho: float = -0.6,
-        fvc: float = 0.35,
+        fvc: float = 0.25,
     ):
         """
         Set of coherent dummy parameters to play around without market data, from the original rough Heston paper.
@@ -92,16 +95,70 @@ class qHeston(BaseModel):
 
         return np.sqrt(a_ji+b_ji+c_ji)
     
-    def _R_bar_rough(self):
-        pass
-    def _R_bar_path_dependent(self):
-        pass
-    def _R_bar_one_factor(self):
-        pass
-    def _R_bar_two_factor(self):
-        pass
+    def _R_bar_rough(self, T: float, n_terms: int=100):
+        alpha = - self.a * self.eta**2 * gamma(2 * self.H)
+        return (1 / (2*self.H)) * sum(((-1)**k) * (alpha**(k+1)) * (T**(2*self.H*(k+1))) / ((k+1) * gamma(2*self.H*(k+1))) for k in range(n_terms))
+    
+    def _laplace_k_tilde_path_dependent(self, u):
+        if u == 0:
+            return self.a*(self.eta**2)*(self.eps**(2*self.H)) / (2*self.H) if self.H > 0 else mp.mpf('+inf')
+        return -self.a * (self.eta**2) * mp.exp(u * self.eps) * (1 / (u**(2*self.H))) * mp.gammainc(2*self.H, a=u*self.eps)
+    
+    def _calculate_resolvent_path_dependent(self, tau):
+        resolvent = []
+        for t in range(tau):
+            resolvent.append(mp.invertlaplace(lambda u: 1 / (1 + (1 / self._laplace_k_tilde_path_dependent(u))), t, method='cohen'))
+        return np.array(resolvent)
 
+    def _R_bar_path_dependent(self, t):
+        t_wth_zero = np.concatenate([[1e-20], t[1:]], axis=0)
+        resolvent = self._calculate_resolvent_path_dependent(t_wth_zero)
+        integrale_resolvent = cumulative_trapezoid(resolvent, t_wth_zero)
+        integrale_resolvent = np.concatenate([[0], integrale_resolvent], axis=0)
+        integrale_resolvent = np.array([float(el) for el in integrale_resolvent])
+        return integrale_resolvent
+    
+    def _R_bar_one_factor(self, t):
+        cst = -self.a * (self.eta ** 2) * (self.eps ** (2*self.H-1))
+        mul = -(2*self.H-1) / self.eps
+        return (cst / (cst + mul)) * (1 - np.exp(-(cst + mul) * t))
+    
+    def _calculate_laplace_transform_exp(self, u, cst, mul):
+        if cst == 0:
+            return 0
+        if mp.re(u) <= mul:
+            return cst*mp.mpf('+inf')
+        return cst / (u - mul)
 
+    def _laplace_k_tilde_two_factor(self, u, cst1, cst2, cst3, mul1, mul2, mul3):
+        laplace_k_tilde1 = self._calculate_laplace_transform_exp(u, cst1, mul1)
+        laplace_k_tilde2 = self._calculate_laplace_transform_exp(u, cst2, mul2)
+        laplace_k_tilde3 = self._calculate_laplace_transform_exp(u, cst3, mul3)
+        return laplace_k_tilde1 + laplace_k_tilde2 + laplace_k_tilde3
+
+    def _calculate_resolvent_two_factor(self, tau):
+        cst1 = -self.a * (self.eta1**2) * (self.eps1 ** (2*self.H1-1))
+        cst2 = -2*self.a*self.eta1*self.eta2*(self.eps1 ** (self.H1-0.5))*(self.eps2 ** (self.H2-0.5))
+        cst3 = -self.a * (self.eta2**2) * (self.eps2 ** (2*self.H2-1))
+        mul1 = (2*self.H1-1) / self.eps1
+        mul2 = (1/self.eps1)*(self.H1-0.5)+(1/self.eps2)*(self.H2-0.5)
+        mul3 = (2*self.H2-1) / self.eps2
+        resolvent = []
+        for t in range(tau):
+            # With 'talbot', the resolvent diverges to infinity as t gets closer to 0.
+            # 'cohen' is more appropriate for dealing with such singularities.
+            resolvent.append(mp.invertlaplace(lambda u: 1 / (1 + (1 / self.laplace_k_tilde_two_factor(u, cst1, cst2, cst3, mul1, mul2, mul3))), t, method='cohen'))
+        return np.array(resolvent)
+
+    def _R_bar_two_factor(self, t):
+        t_wth_zero = np.concatenate([[1e-20], t[1:]], axis=0)
+        resolvent = self._calculate_resolvent_two_factor(t_wth_zero)
+        integrale_resolvent = cumulative_trapezoid(resolvent, t_wth_zero)
+        integrale_resolvent = np.concatenate([[0], integrale_resolvent], axis=0)
+        integrale_resolvent = np.array([float(el) for el in integrale_resolvent])
+        return integrale_resolvent
+
+    # TODO: looks like we are recomputing the w_j^i each time..?
     def generate_paths(self, n_steps: int, length: int = 1, n_sims: int = 1, kernel: KernelFlavour=KernelFlavour.ROUGH):
         # Uncorrelated brownians
         w1, w2 = (
@@ -129,7 +186,7 @@ class qHeston(BaseModel):
                 std_ji = self._std_ji_path_dependent(tj, ti_s)
             elif kernel == KernelFlavour.ONE_FACTOR:
                 std_ji = self._std_ji_one_factor(tj, ti_s)
-            elif kernel == KernelFlavour.ONE_FACTOR:
+            elif kernel == KernelFlavour.TWO_FACTOR:
                 std_ji = self._std_ji_two_factor(tj, ti_s)
             else:
                 warnings.warn("Unrecognized kernel type. Please provide a valid kernel type from KernelFlavour enum.", UserWarning)
@@ -139,6 +196,7 @@ class qHeston(BaseModel):
             V_temp = self.a*((Z_temp-self.b)**2)+self.c
             Z = np.append(Z, Z_temp.reshape(1, -1), axis=0)
             V = np.append(V, V_temp.reshape(1, -1), axis=0)
+            print(V)
 
 
         # Correlate the brownians with rho
@@ -151,6 +209,24 @@ class qHeston(BaseModel):
         self.grid = tt # Needed to match grids with VIX levels computations
 
         return St, V
+    
+    def compute_vix(self, tau, kernel: KernelFlavour=KernelFlavour.ROUGH):
+        if kernel==KernelFlavour.ROUGH:
+            int_res = self._R_bar_rough(T=tau)
+        elif kernel==KernelFlavour.PATH_DEPENDENT:
+            int_res = self._R_bar_path_dependent(t=tau)
+        elif kernel==KernelFlavour.ONE_FACTOR:
+            int_res = self._R_bar_one_factor(t=tau)
+        elif kernel == KernelFlavour.TWO_FACTOR:
+            int_res = self._R_bar_two_factor(t=tau)
+        else:
+            warnings.warn("Unrecognized kernel type. Please provide a valid kernel type from KernelFlavour enum.", UserWarning)
+            raise ValueError("Invalid kernel type provided.")
+        
+        int_res = 1 - np.flip(int_res)
+        int_res = int_res.reshape((-1, 1))
+
+        
 
 
     def generate_paths_old(self, n_steps: int, length: int, n_sims: int = 1):
