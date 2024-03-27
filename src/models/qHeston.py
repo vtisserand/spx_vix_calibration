@@ -51,6 +51,16 @@ class qHeston(BaseModel):
         self.eta1, self.eta2 = eta, eta
         self.H1, self.H2 = H, H
         self.eps1, self.eps2 = eps, eps
+        # Values to be stored for VIX computations after some trajectories are generated
+        self.grid = None
+        self.w1 = None
+
+        self.kernel_std = {
+            KernelFlavour.ROUGH: self._std_ji_rough,
+            KernelFlavour.PATH_DEPENDENT: self._std_ji_path_dependent,
+            KernelFlavour.ONE_FACTOR: self._std_ji_one_factor,
+            KernelFlavour.TWO_FACTOR: self._std_ji_two_factor
+        }
 
     def fit(
         self,
@@ -180,14 +190,8 @@ class qHeston(BaseModel):
             tj = tt[j+1]
             ti_s = tt[:j+2]
 
-            if kernel == KernelFlavour.ROUGH:
-                std_ji = self._std_ji_rough(tj, ti_s)
-            elif kernel == KernelFlavour.PATH_DEPENDENT:
-                std_ji = self._std_ji_path_dependent(tj, ti_s)
-            elif kernel == KernelFlavour.ONE_FACTOR:
-                std_ji = self._std_ji_one_factor(tj, ti_s)
-            elif kernel == KernelFlavour.TWO_FACTOR:
-                std_ji = self._std_ji_two_factor(tj, ti_s)
+            if kernel in self.kernel_std:
+                std_ji = self.kernel_std[kernel](tj, ti_s)
             else:
                 warnings.warn("Unrecognized kernel type. Please provide a valid kernel type from KernelFlavour enum.", UserWarning)
                 raise ValueError("Invalid kernel type provided.")
@@ -196,8 +200,6 @@ class qHeston(BaseModel):
             V_temp = self.a*((Z_temp-self.b)**2)+self.c
             Z = np.append(Z, Z_temp.reshape(1, -1), axis=0)
             V = np.append(V, V_temp.reshape(1, -1), axis=0)
-            print(V)
-
 
         # Correlate the brownians with rho
         correlated_brownian = self.rho * w1 + np.sqrt(1 - self.rho**2) * w2
@@ -207,10 +209,13 @@ class qHeston(BaseModel):
         St = np.exp(logSt)
 
         self.grid = tt # Needed to match grids with VIX levels computations
+        self.w1 = w1
 
         return St, V
     
-    def compute_vix(self, tau, kernel: KernelFlavour=KernelFlavour.ROUGH):
+    def compute_vix(self, t, tau, delta, V, n_steps:int, n_sims:int, kernel: KernelFlavour=KernelFlavour.ROUGH):
+        tt = self.grid
+
         if kernel==KernelFlavour.ROUGH:
             int_res = self._R_bar_rough(T=tau)
         elif kernel==KernelFlavour.PATH_DEPENDENT:
@@ -226,7 +231,35 @@ class qHeston(BaseModel):
         int_res = 1 - np.flip(int_res)
         int_res = int_res.reshape((-1, 1))
 
-        
+        vix=[]
+        for time_t in range(t): # Nested loop as we integrate of the forward variance at each time step to get VIX levels
+            j = int(n_steps * time_t)
+            f = []
+            for time_tau in range(tau):
+                k = int(n_steps*time_tau)
+                tj = tt[j+k+1]
+                ti_s = tt[:j+2]
+
+                if kernel in self.kernel_std:
+                    std_ji = self.kernel_std[kernel](tj, ti_s)
+                else:
+                    warnings.warn("Unrecognized kernel type. Please provide a valid kernel type from KernelFlavour enum.", UserWarning)
+                    raise ValueError("Invalid kernel type provided.")
+                
+                g = self.fvc + np.sum(std_ji.reshape(-1, 1)*self.w1[:j+1]*np.sqrt(V[:j+1]), axis=0)
+                f.append((self.a * (g - self.b)**2 + self.c).reshape((1, -1)))
+            f = np.concatenate(f, axis=0)
+            integrand = int_res * f
+
+            l = []
+            for i in range(n_sims):
+                l.append(trapz(integrand[:, i], tau))
+            vix_temp = np.array(l).reshape((1, -1))
+            vix.append(vix_temp)
+
+        vix = np.concatenate(vix, axis=0)
+        vix = np.sqrt((10000 / delta) * vix)
+        return vix
 
 
     def generate_paths_old(self, n_steps: int, length: int, n_sims: int = 1):
