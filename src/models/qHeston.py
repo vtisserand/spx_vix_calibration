@@ -175,7 +175,7 @@ class qHeston(BaseModel):
             np.random.normal(0, 1, (n_steps * length, n_sims)),
             np.random.normal(0, 1, (n_steps * length, n_sims)),
         )
-        tt = np.linspace(0, n_steps * length, n_steps * length + 1)
+        tt = np.linspace(0, length, n_steps * length + 1)
 
         # Initiate rough Heston Z process and quadratic form instantaneous variance V
         dt = tt[1] - tt[0] # Uniform grid
