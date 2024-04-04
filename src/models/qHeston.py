@@ -3,6 +3,7 @@ import warnings
 from scipy.special import gamma
 from scipy.integrate import trapz, cumulative_trapezoid
 import mpmath as mp
+from tqdm import tqdm
 from mpmath import invertlaplace
 from py_vollib.black_scholes.implied_volatility import implied_volatility
 
@@ -116,7 +117,7 @@ class qHeston(BaseModel):
     
     def _calculate_resolvent_path_dependent(self, tau):
         resolvent = []
-        for t in range(tau):
+        for t in tau:
             resolvent.append(mp.invertlaplace(lambda u: 1 / (1 + (1 / self._laplace_k_tilde_path_dependent(u))), t, method='cohen'))
         return np.array(resolvent)
 
@@ -214,6 +215,9 @@ class qHeston(BaseModel):
         return St, V
     
     def compute_vix(self, t, tau, delta, V, n_steps:int, n_sims:int, kernel: KernelFlavour=KernelFlavour.ROUGH):
+        """
+        t: maturities for vix when options
+        """
         tt = self.grid
 
         if kernel==KernelFlavour.ROUGH:
@@ -232,10 +236,10 @@ class qHeston(BaseModel):
         int_res = int_res.reshape((-1, 1))
 
         vix=[]
-        for time_t in range(t): # Nested loop as we integrate of the forward variance at each time step to get VIX levels
+        for time_t in tqdm(t): # Nested loop as we integrate of the forward variance at each time step to get VIX levels
             j = int(n_steps * time_t)
             f = []
-            for time_tau in range(tau):
+            for time_tau in tau:
                 k = int(n_steps*time_tau)
                 tj = tt[j+k+1]
                 ti_s = tt[:j+2]
