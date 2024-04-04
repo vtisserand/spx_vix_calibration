@@ -12,6 +12,7 @@ notes.text
 
 # Ignore data
 data/
+misc/
 
 # OS generated files #
 ######################
