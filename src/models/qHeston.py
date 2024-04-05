@@ -187,7 +187,7 @@ class qHeston(BaseModel):
         V[0] = self.a*(self.fvc-self.b)**2+self.c
 
 
-        for j in range(n_steps * length):
+        for j in tqdm(range(n_steps * length)):
             tj = tt[j+1]
             ti_s = tt[:j+2]
 
