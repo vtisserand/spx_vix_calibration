@@ -12,11 +12,12 @@ from src.models.kernels import KernelFlavour, mittag_leffler
 
 
 class qHeston(BaseModel):
-    def __init__(self, initial_price: float = 100):
+    def __init__(self, initial_price: float = 100, kernel: KernelFlavour=KernelFlavour.ROUGH):
         """
         The rough Bergomi model...
         """
         super().__init__(initial_price)
+        self.kernel = kernel
         self.set_parameters()
 
     def __repr__(self):
@@ -170,7 +171,7 @@ class qHeston(BaseModel):
         return integrale_resolvent
 
     # TODO: looks like we are recomputing the w_j^i each time..?
-    def generate_paths(self, n_steps: int, length: int = 1, n_sims: int = 1, kernel: KernelFlavour=KernelFlavour.ROUGH):
+    def generate_paths(self, n_steps: int, length: int = 1, n_sims: int = 1,):
         # Uncorrelated brownians
         w1, w2 = (
             np.random.normal(0, 1, (n_steps * length, n_sims)),
@@ -191,8 +192,8 @@ class qHeston(BaseModel):
             tj = tt[j+1]
             ti_s = tt[:j+2]
 
-            if kernel in self.kernel_std:
-                std_ji = self.kernel_std[kernel](tj, ti_s)
+            if self.kernel in self.kernel_std:
+                std_ji = self.kernel_std[self.kernel](tj, ti_s)
             else:
                 warnings.warn("Unrecognized kernel type. Please provide a valid kernel type from KernelFlavour enum.", UserWarning)
                 raise ValueError("Invalid kernel type provided.")
@@ -214,19 +215,19 @@ class qHeston(BaseModel):
 
         return St, V
     
-    def compute_vix(self, t, tau, delta, V, n_steps:int, n_sims:int, kernel: KernelFlavour=KernelFlavour.ROUGH):
+    def compute_vix(self, t, tau, delta, V, n_steps:int, n_sims:int,):
         """
         t: maturities for vix when options
         """
         tt = self.grid
 
-        if kernel==KernelFlavour.ROUGH:
+        if self.kernel==KernelFlavour.ROUGH:
             int_res = self._R_bar_rough(T=tau)
-        elif kernel==KernelFlavour.PATH_DEPENDENT:
+        elif self.kernel==KernelFlavour.PATH_DEPENDENT:
             int_res = self._R_bar_path_dependent(t=tau)
-        elif kernel==KernelFlavour.ONE_FACTOR:
+        elif self.kernel==KernelFlavour.ONE_FACTOR:
             int_res = self._R_bar_one_factor(t=tau)
-        elif kernel == KernelFlavour.TWO_FACTOR:
+        elif self.kernel == KernelFlavour.TWO_FACTOR:
             int_res = self._R_bar_two_factor(t=tau)
         else:
             warnings.warn("Unrecognized kernel type. Please provide a valid kernel type from KernelFlavour enum.", UserWarning)
@@ -244,8 +245,8 @@ class qHeston(BaseModel):
                 tj = tt[j+k+1]
                 ti_s = tt[:j+2]
 
-                if kernel in self.kernel_std:
-                    std_ji = self.kernel_std[kernel](tj, ti_s)
+                if self.kernel in self.kernel_std:
+                    std_ji = self.kernel_std[self.kernel](tj, ti_s)
                 else:
                     warnings.warn("Unrecognized kernel type. Please provide a valid kernel type from KernelFlavour enum.", UserWarning)
                     raise ValueError("Invalid kernel type provided.")
