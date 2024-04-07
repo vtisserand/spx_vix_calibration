@@ -219,9 +219,9 @@ class qHeston(BaseModel):
         """
         Parameters:
           t: times at which we want to compute VIX levels, e.g. for 6 months options MC, t=[1/2],
-          tau: how far is the VIX looking. Classicly 1/12 vut for VIX3M 1/4 for instance,
-          delta:
-          V: the variance process
+          tau: discretization grid, matches the one of the Euler scheme to generathe the sample paths,
+          delta: how far is the VIX looking. Classicly 1/12 vut for VIX3M 1/4 for instance,
+          V: the variance process,
         """
         tt = self.grid
 
