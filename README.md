@@ -28,3 +28,16 @@ There are two big machineries in the code: the models that usually have a method
 ├── stylized_facts.py
 └── utils.py
 ```
+
+Example use:
+
+```
+from src.models import qHeston
+from src.models.kernels import KernelFlavour
+
+model = qHeston(kernel=KernelFlavour.ROUGH)
+# To change from the default set of parameters:
+model.set_parameters(a=0.21, b=0.08, c=0.0024, H=0.08, eta=1., eps=1/52, rho=-1., fvc=0.3)
+
+S, V = model.generate_paths(n_steps=int(12*6.5*252), length=5, n_sims=100)
+```
