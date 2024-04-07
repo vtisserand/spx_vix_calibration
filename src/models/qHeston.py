@@ -217,7 +217,11 @@ class qHeston(BaseModel):
     
     def compute_vix(self, t, tau, delta, V, n_steps:int, n_sims:int,):
         """
-        t: maturities for vix when options
+        Parameters:
+          t: times at which we want to compute VIX levels, e.g. for 6 months options MC, t=[1/2],
+          tau: how far is the VIX looking. Classicly 1/12 vut for VIX3M 1/4 for instance,
+          delta:
+          V: the variance process
         """
         tt = self.grid
 
