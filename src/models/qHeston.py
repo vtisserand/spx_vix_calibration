@@ -123,11 +123,14 @@ class qHeston(BaseModel):
         return np.array(resolvent)
 
     def _R_bar_path_dependent(self, t):
-        t_wth_zero = np.concatenate([[1e-20], t[1:]], axis=0)
-        resolvent = self._calculate_resolvent_path_dependent(t_wth_zero)
-        integrale_resolvent = cumulative_trapezoid(resolvent, t_wth_zero)
+        tt = np.linspace(0, 1/2, 1000)
+        tt = 1e-20 + np.power(tt, 10)
+        tt = np.concatenate([tt, np.linspace(tt[-1], t[-1], max(1000, len(t)))[1:]], axis=0)        
+        resolvent = self._calculate_resolvent_path_dependent(tt)
+        integrale_resolvent = cumulative_trapezoid(resolvent, tt)
         integrale_resolvent = np.concatenate([[0], integrale_resolvent], axis=0)
         integrale_resolvent = np.array([float(el) for el in integrale_resolvent])
+        integrale_resolvent = np.interp(t, tt, integrale_resolvent)
         return integrale_resolvent
     
     def _R_bar_one_factor(self, t):
