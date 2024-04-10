@@ -177,10 +177,10 @@ class qHeston(BaseModel):
     def generate_paths(self, n_steps: int, length: int = 1, n_sims: int = 1,):
         # Uncorrelated brownians
         w1, w2 = (
-            np.random.normal(0, 1, (n_steps * length, n_sims)),
-            np.random.normal(0, 1, (n_steps * length, n_sims)),
+            np.random.normal(0, 1, (int(n_steps * length), n_sims)),
+            np.random.normal(0, 1, (int(n_steps * length), n_sims)),
         )
-        tt = np.linspace(0, length, n_steps * length + 1)
+        tt = np.linspace(0, length, int(n_steps * length) + 1)
 
         # Initiate rough Heston Z process and quadratic form instantaneous variance V
         dt = tt[1] - tt[0] # Uniform grid
@@ -190,8 +190,7 @@ class qHeston(BaseModel):
         Z[0] = self.fvc
         V[0] = self.a*(self.fvc-self.b)**2+self.c
 
-
-        for j in tqdm(range(n_steps * length)):
+        for j in tqdm(range(int(n_steps * length))):
             tj = tt[j+1]
             ti_s = tt[:j+2]
 
