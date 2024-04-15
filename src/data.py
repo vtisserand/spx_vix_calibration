@@ -1,5 +1,6 @@
 import numpy as np
 from typing import Optional
+from collections import defaultdict
 
 from py_vollib.black_scholes.implied_volatility import implied_volatility
 
@@ -17,7 +18,7 @@ class OptionChain:
         self,
         ttms: np.ndarray,
         strikes: np.ndarray,
-        forward: np.ndarray,
+        forwards: np.ndarray,
         flags: np.ndarray,
         ivs: Optional[np.ndarray] = None,
         prices: Optional[np.ndarray] = None,
@@ -28,7 +29,7 @@ class OptionChain:
     ):
         self.ttms = ttms
         self.strikes = strikes
-        self.forward = forward
+        self.forwards = forwards
         self.flags = flags
 
         if bid_ivs is not None and ask_ivs is not None:
@@ -52,4 +53,19 @@ class OptionChain:
                 self.ivs[i] = vec_find_vol_rat(self.prices[i], self.forward[i], self.strikes[i], self.ttms[i], 0, self.flags[i])
 
         return self.ivs
+
+    def group_by_slice(self):
+        slice_groups = defaultdict(lambda: {"strikes": [], "forwards": [], "flags": []})
+        
+        for ttm, strike, forward, flag in zip(self.ttms, self.strikes, self.forwards, self.flags):
+            slice_groups[ttm]["strikes"].append(strike)
+            slice_groups[ttm]["forwards"].append(forward)
+            slice_groups[ttm]["flags"].append(flag)
+        
+        for group in slice_groups.values():
+            group["strikes"] = np.array(group["strikes"])
+            group["forwards"] = np.array(group["forwards"])
+            group["flags"] = np.array(group["flags"])
+            
+        return slice_groups
 

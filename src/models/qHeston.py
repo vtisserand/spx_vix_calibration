@@ -4,6 +4,7 @@ from scipy.special import gamma
 from scipy.integrate import trapz, cumulative_trapezoid
 from scipy.optimize import minimize
 from typing import Optional
+from collections import defaultdict
 import mpmath as mp
 from tqdm import tqdm
 from mpmath import invertlaplace
@@ -411,8 +412,7 @@ class qHeston(BaseModel):
         # intrinsic_value = np.maximum(strikes - forward, 0.)
         opt_prices = np.mean(
             np.maximum(
-                strikes
-                - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),
+                strikes - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),
                 0,
             ),
             axis=0,
@@ -427,6 +427,7 @@ class qHeston(BaseModel):
     ):
         return option_chain.get_iv()
 
+
     def fit(
         self,
         option_chain: OptionChain,
@@ -434,27 +435,37 @@ class qHeston(BaseModel):
         vix_futures: Optional[np.ndarray] = None,
     ):
         market_vols = option_chain.get_iv()
+        
+        def objective(params: np.ndarray, *args) -> float:
+            print(f"params: {params}")
+            self.set_parameters(*params)
+            # Sample paths with a buffer for long maturities
+            prices, _ = self.generate_paths(n_steps=NB_DAYS_PER_YEAR, length=1.1*max(option_chain.ttms), n_sims=30000)
 
-        def objective(params: np.ndarray) -> float:
-            pass
+            # Here we group the computations by slices (options accros different strikes for the same maturity).
+            slices = option_chain.group_by_slice()
+            model_vols = []
+            for ttm, slice_data in slices.items():
+                model_vols.append(self.get_iv(prices, ttm, slice_data["strikes"], slice_data["forwards"][0],))
+            error = np.sum(np.square(np.array(model_vols).flatten() - np.array(market_vols)))
+            print(f"error: {error}")
 
-            # error = np.square(model_vols - market_vols)
-            # return error
+            return error
 
-        def objective_joint(params: np.ndarray) -> float:
+        def objective_joint(params: np.ndarray, args: np.ndarray) -> float:
             spx_market_vols = option_chain.get_iv()
             vix_market_vols = vix_option_chain.get_iv()
 
             pass
 
-        init_guess = np.array([0.0])
-        bounds = ((-1, 1), (0, 1), (0, 1))
+        init_guess = np.array([0.384, 0.095, 0.0025, 0.08, 0.7, 1/52, -0.6, 0.25])
 
         if vix_option_chain is not None:
+            bounds = ((-1, 1), (0, 1), (0, 1))
             res = minimize(
                 objective_joint, init_guess, args=None, method="SLSQP", bounds=bounds
             )
 
-        res = minimize(objective, init_guess, args=None, method="SLSQP", bounds=bounds)
+        res = minimize(objective, init_guess, args=None, method="BFGS") 
 
         return res.x
