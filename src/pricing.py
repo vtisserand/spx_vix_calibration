@@ -2,15 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy
 
-from py_vollib.black_scholes.implied_volatility import implied_volatility
-vec_find_vol_rat = np.vectorize(implied_volatility)
-
 from src.models.base_model import BaseModel
 
 def get_mc_iv():
     pass
 
-def get_atm_skew(model: BaseModel, S0: float=100., plot: bool=True, fit: bool=True):
+def get_atm_skew(model: BaseModel, prices: np.array, S0: float=100., plot: bool=True, fit: bool=True):
     hh = 0.001
     ttms = np.exp(np.linspace(np.log(1/52),np.log(2),20))
     ttms = np.append([1/252], ttms)
@@ -18,7 +15,7 @@ def get_atm_skew(model: BaseModel, S0: float=100., plot: bool=True, fit: bool=Tr
 
     skew_calc = []
     for x in ttms:
-        iv = model.get_iv(ttm=x, strikes=strike_array, forward=S0)
+        iv = model.get_iv(prices=prices, ttm=x, strikes=strike_array, forward=S0)
         skew_calc.append(iv)
     skew_calc = np.array(skew_calc)
 
