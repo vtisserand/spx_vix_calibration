@@ -11,6 +11,7 @@ vec_find_vol_rat = np.vectorize(implied_volatility)
 
 from src.models.base_model import BaseModel
 from src.models.kernels import KernelFlavour
+from src.data import OptionChain
 from src.config import NB_DAYS_PER_YEAR
 
 
@@ -283,8 +284,11 @@ class qHeston(BaseModel):
 
         iv_mid = vec_find_vol_rat(opt_prices, forward, strikes, ttm, 0, 'p')
         return iv_mid
+    
+    def get_iv_from_option_chain(self, option_chain: OptionChain,):
+        return option_chain.get_iv()
 
-    def fit(self, option_chain: np.ndarray):
+    def fit(self, option_chain: OptionChain,):
 
         def objective(params: np.ndarray) -> float:
             pass
