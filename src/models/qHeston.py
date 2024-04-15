@@ -3,6 +3,7 @@ import warnings
 from scipy.special import gamma
 from scipy.integrate import trapz, cumulative_trapezoid
 from scipy.optimize import minimize
+from typing import Optional
 import mpmath as mp
 from tqdm import tqdm
 from mpmath import invertlaplace
@@ -288,7 +289,9 @@ class qHeston(BaseModel):
     def get_iv_from_option_chain(self, option_chain: OptionChain,):
         return option_chain.get_iv()
 
-    def fit(self, option_chain: OptionChain,):
+    def fit(self, option_chain: OptionChain, vix_option_chain: Optional[OptionChain]=None, vix_futures: Optional[np.ndarray]=None,):
+
+        market_vols = option_chain.get_iv()
 
         def objective(params: np.ndarray) -> float:
             pass
@@ -296,8 +299,17 @@ class qHeston(BaseModel):
             # error = np.square(model_vols - market_vols)
             # return error
 
+        def objective_joint(params: np.ndarray) -> float:
+            spx_market_vols = option_chain.get_iv()
+            vix_market_vols = vix_option_chain.get_iv()
+
+            pass            
+
         init_guess = np.array([0.])
         bounds = ((-1,1), (0, 1), (0, 1))
+
+        if vix_option_chain is not None:
+            res = minimize(objective_joint, init_guess, args=None, method='SLSQP', bounds=bounds)
 
         res = minimize(objective, init_guess, args=None, method='SLSQP', bounds=bounds)
 
