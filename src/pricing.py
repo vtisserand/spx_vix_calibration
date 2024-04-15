@@ -7,7 +7,7 @@ from src.models.base_model import BaseModel
 def get_mc_iv():
     pass
 
-def get_atm_skew(model: BaseModel, prices: np.array, S0: float=100., plot: bool=True, fit: bool=True):
+def get_atm_skew(model: BaseModel, prices: np.ndarray, S0: float=100., plot: bool=True, fit: bool=True):
     hh = 0.001
     ttms = np.exp(np.linspace(np.log(1/52),np.log(2),20))
     ttms = np.append([1/252], ttms)

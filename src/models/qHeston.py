@@ -274,10 +274,10 @@ class qHeston(BaseModel):
         return vix
 
 
-    def get_iv(self, prices: np.array, ttm: float, strikes: np.array, forward: float):
+    def get_iv(self, prices: np.ndarray, ttm: float, strikes: np.ndarray, forward: float):
         prices_ttm = prices[int(ttm*NB_DAYS_PER_YEAR)]
 
-        #intrinsic_value = np.maximum(strikes - forward, 0)
+        #intrinsic_value = np.maximum(strikes - forward, 0.)
         opt_prices = np.mean(np.maximum(strikes - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1), 0), axis=0)
 
         iv_mid = vec_find_vol_rat(opt_prices, forward, strikes, ttm, 0, 'p')
