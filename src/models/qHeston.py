@@ -447,7 +447,10 @@ class qHeston(BaseModel):
             model_vols = []
             for ttm, slice_data in slices.items():
                 model_vols.append(self.get_iv(prices, ttm, slice_data["strikes"], slice_data["forwards"][0],))
-            error = np.sum(np.square(np.array(model_vols).flatten() - np.array(market_vols)))
+            print(f"market: {100*np.array(market_vols)}")
+            print(f"model: {100*np.array(model_vols).flatten()}")
+
+            error = np.sum(np.square(100*np.array(model_vols).flatten() - 100*np.array(market_vols)))
             print(f"error: {error}")
 
             return error
@@ -458,7 +461,7 @@ class qHeston(BaseModel):
 
             pass
 
-        init_guess = np.array([0.384, 0.095, 0.0025, 0.08, 0.7, 1/52, -0.6, 0.25])
+        init_guess = np.array([0.384, 0.095, 0.0025, 0.08, 0.7, 1/52, -0.6, 0.15])
 
         if vix_option_chain is not None:
             bounds = ((-1, 1), (0, 1), (0, 1))
@@ -466,6 +469,6 @@ class qHeston(BaseModel):
                 objective_joint, init_guess, args=None, method="SLSQP", bounds=bounds
             )
 
-        res = minimize(objective, init_guess, args=None, method="BFGS") 
+        res = minimize(objective, init_guess, args=(option_chain,), method="nelder-mead") 
 
         return res.x
