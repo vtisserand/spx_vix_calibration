@@ -2,6 +2,7 @@ import numpy as np
 import warnings
 from scipy.special import gamma
 from scipy.integrate import trapz, cumulative_trapezoid
+from scipy.optimize import minimize
 import mpmath as mp
 from tqdm import tqdm
 from mpmath import invertlaplace
@@ -282,3 +283,18 @@ class qHeston(BaseModel):
 
         iv_mid = vec_find_vol_rat(opt_prices, forward, strikes, ttm, 0, 'p')
         return iv_mid
+
+    def fit(self, option_chain: np.ndarray):
+
+        def objective(params: np.ndarray) -> float:
+            pass
+
+            # error = np.square(model_vols - market_vols)
+            # return error
+
+        init_guess = np.array([0.])
+        bounds = ((-1,1), (0, 1), (0, 1))
+
+        res = minimize(objective, init_guess, args=None, method='SLSQP', bounds=bounds)
+
+        return res.x
