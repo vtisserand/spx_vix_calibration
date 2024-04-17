@@ -440,7 +440,7 @@ class qHeston(BaseModel):
             print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
-            prices, _ = self.generate_paths(n_steps=NB_DAYS_PER_YEAR, length=1.1*max(option_chain.ttms), n_sims=30000)
+            prices, _ = self.generate_paths(n_steps=NB_DAYS_PER_YEAR, length=1.1*max(option_chain.ttms), n_sims=50000)
 
             # Here we group the computations by slices (options accros different strikes for the same maturity).
             slices = option_chain.group_by_slice()
@@ -461,7 +461,7 @@ class qHeston(BaseModel):
 
             pass
 
-        init_guess = np.array([0.384, 0.095, 0.0025, 0.08, 0.7, 1/52, -0.6, 0.15])
+        init_guess = np.array([0.3, 0.2, 0.005, 0.15, 0.7, 1/52, -0.8, 0.2])
 
         if vix_option_chain is not None:
             bounds = ((-1, 1), (0, 1), (0, 1))
