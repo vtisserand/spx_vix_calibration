@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from typing import Optional
 from collections import defaultdict
 
@@ -68,4 +69,51 @@ class OptionChain:
             group["flags"] = np.array(group["flags"])
             
         return slice_groups
+    
+    def plot_2d(self):
+        """
+        Scatter plot of the option surface assuming ivs are provided.
+        """
+        unique_ttms = np.unique(self.ttms)
+        color_map = plt.cm.get_cmap('rainbow', len(unique_ttms))
+
+        ttm_legend_added = {}
+
+        fig,ax=plt.subplots()
+        for ttm, strike, iv in zip(self.ttms, self.strikes, self.ivs):
+            color_index = np.where(unique_ttms == ttm)[0][0]
+            ax.scatter(strike, 100*iv, color=color_map(color_index), label=f'Maturity: {ttm}' if ttm not in ttm_legend_added else '')
+            ttm_legend_added[ttm] = True
+
+        ax.set_xlabel('Strikes')
+        ax.set_ylabel('IVs (in %)')
+        ax.set_title('2D visualization of the option chain')
+        ax.legend()
+
+        fig.show()
+
+    def plot_3d(self):
+        unique_ttms = np.unique(self.ttms)
+        color_map = plt.cm.get_cmap('rainbow', len(unique_ttms))
+
+        ttm_legend_added = {}
+
+        fig = plt.figure(figsize=(6,6))
+        ax = fig.add_subplot(111, projection='3d')
+
+        for ttm, strike, iv in zip(self.ttms, self.strikes, self.ivs):
+            color_index = np.where(unique_ttms == ttm)[0][0]
+            ax.scatter(strike, ttm, 100*iv, color=color_map(color_index), label=f'Maturity: {ttm}' if ttm not in ttm_legend_added else '')
+            ttm_legend_added[ttm] = True
+
+        ax.set_xlabel('Strikes')
+        ax.set_zlabel('IVs (in %)')
+        ax.set_ylabel('Time to Maturity')
+        ax.set_title('3D visualization of the option chain')
+        ax.legend()
+
+        ax.view_init(elev=25, azim=-60)
+        ax.dist = 11
+
+        fig.show()
 
