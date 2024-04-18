@@ -447,31 +447,31 @@ class ZumbachEffect(StylizedFact):
         correlation = self.compute_cross_correlation()
 
         # Trim to actually get cross-correlation
-        corr = correlation[len(correlation) // 2 + self.lag :][:window]
+        corr_tra = correlation[len(correlation) // 2 + self.lag :][:window]
         if tra:
-            corr_tra = correlation[: len(correlation) // 2 + self.lag - 1][::-1][
+            corr = correlation[: len(correlation) // 2 + self.lag - 1][::-1][
                 :window
             ]
-            min_length = min(len(corr), len(corr_tra))
-            corr = corr[:min_length, :]
+            min_length = min(len(corr_tra), len(corr))
             corr_tra = corr_tra[:min_length, :]
-            corr_tra_std = corr_tra.std(ddof=0, axis=1)
-            corr_tra = corr_tra.mean(axis=1)
-        corr_std = corr.std(ddof=0, axis=1)
+            corr = corr[:min_length, :]
+            corr_std = corr.std(ddof=0, axis=1)
+            corr = corr.mean(axis=1)
+        corr_tra_std = corr_tra.std(ddof=0, axis=1)
         if tra:
-            corr_std = np.concatenate([corr_std.reshape(len(corr_std), 1),
-                corr_tra_std.reshape(len(corr_tra_std), 1)], axis=1)
-            corr_std = corr_std.max(axis=1)
-        corr = corr.mean(axis=1)
-        time_axis = np.arange(corr.shape[0])
+            corr_tra_std = np.concatenate([corr_tra_std.reshape(len(corr_tra_std), 1),
+                corr_std.reshape(len(corr_std), 1)], axis=1)
+            corr_tra_std = corr_tra_std.max(axis=1)
+        corr_tra = corr_tra.mean(axis=1)
+        time_axis = np.arange(corr_tra.shape[0])
 
         # Plot the correlation values
-        ax.plot(time_axis, corr, label="Correlation", color="blue")
+        ax.plot(time_axis, corr, label="Correlation ($\sigma_t^2$ vs. past $r_t^2$)", color="blue")
         if tra:
             ax.plot(
                 np.arange(len(corr_tra)),
                 corr_tra,
-                label="Correlation time reversal",
+                label="Correlation time reversal ($\sigma_t^2$ vs. future $r_t^2$)",
                 color="green",
                 alpha=0.4,
             )
