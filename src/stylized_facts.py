@@ -244,7 +244,7 @@ class VolatilityClustering(StylizedFact):
     def __init__(self,
                  prices: ndarray | list,
                  daily: bool = True,
-                 lag: int=50,
+                 lag: int=500,
                  threshold: float=0.5) -> None:
         super().__init__(prices, daily=daily)
         self.threshold = threshold
