@@ -405,9 +405,9 @@ class qHeston(BaseModel):
         return vix
 
     def get_iv(
-        self, prices: np.ndarray, ttm: float, strikes: np.ndarray, forward: float
+        self, prices: np.ndarray, ttm: float, n_steps: int, strikes: np.ndarray, forward: float
     ):
-        prices_ttm = prices[int(ttm * NB_DAYS_PER_YEAR)]
+        prices_ttm = prices[int(ttm * n_steps)]
 
         # intrinsic_value = np.maximum(strikes - forward, 0.)
         opt_prices = np.mean(
@@ -434,19 +434,21 @@ class qHeston(BaseModel):
         vix_option_chain: Optional[OptionChain] = None,
         vix_futures: Optional[np.ndarray] = None,
     ):
+        n_steps = 3*NB_DAYS_PER_YEAR # Change to ensure less biased MC estimator
+
         market_vols = option_chain.get_iv()
         
         def objective(params: np.ndarray, *args) -> float:
             print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
-            prices, _ = self.generate_paths(n_steps=NB_DAYS_PER_YEAR, length=1.1*max(option_chain.ttms), n_sims=50000)
+            prices, _ = self.generate_paths(n_steps=n_steps, length=1.1*max(option_chain.ttms), n_sims=300000)
 
             # Here we group the computations by slices (options accros different strikes for the same maturity).
             slices = option_chain.group_by_slice()
             model_vols = []
             for ttm, slice_data in slices.items():
-                model_vols.append(self.get_iv(prices, ttm, slice_data["strikes"], slice_data["forwards"][0],))
+                model_vols.append(self.get_iv(prices, ttm, n_steps, slice_data["strikes"], slice_data["forwards"][0],))
             print(f"market: {100*np.array(market_vols)}")
             print(f"model: {100*np.array(model_vols).flatten()}")
 

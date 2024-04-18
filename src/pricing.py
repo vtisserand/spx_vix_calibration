@@ -5,7 +5,7 @@ import scipy
 from src.models.base_model import BaseModel
 from src.config import NB_DAYS_PER_YEAR
 
-def get_atm_skew(model: BaseModel, prices: np.ndarray, S0: float=100., plot: bool=True, fit: bool=True):
+def get_atm_skew(model: BaseModel, prices: np.ndarray, S0: float=100., n_steps: int=NB_DAYS_PER_YEAR, plot: bool=True, fit: bool=True):
     hh = 1e-4
     ttms = np.exp(np.linspace(np.log(1/52),np.log(2),20))
     ttms = np.append([1/252], ttms)
@@ -13,11 +13,9 @@ def get_atm_skew(model: BaseModel, prices: np.ndarray, S0: float=100., plot: boo
 
     skew_calc = []
     for x in ttms:
-        iv = model.get_iv(prices=prices, ttm=x, strikes=strike_array, forward=S0)
+        iv = model.get_iv(prices=prices, ttm=x, n_steps=n_steps, strikes=strike_array, forward=S0)
         skew_calc.append(iv)
     skew_calc = np.array(skew_calc) # A len(ttms) x 2 array to make finite differences derivative approximation
-
-    print(skew_calc)
 
     if fit:
         lin_regres_result = scipy.stats.linregress(np.log(ttms),np.log((skew_calc[:,0]-skew_calc[:,1])/hh))
@@ -35,7 +33,7 @@ def get_atm_skew(model: BaseModel, prices: np.ndarray, S0: float=100., plot: boo
 
         fig.show()
 
-def plot_spx_surface(model: BaseModel, S0: float=100.):
+def plot_spx_surface(model: BaseModel, S0: float=100., n_steps: int=NB_DAYS_PER_YEAR):
     ttm_array = np.array([1/52,2/52,1/12,2/12,3/12,6/12,1,1.5,2])
     ttm_array_name = np.array(['1w','2w','1m','2m','3m','6m','1y','18m','2y'])
 
@@ -65,7 +63,7 @@ def plot_spx_surface(model: BaseModel, S0: float=100.):
         logk_lu = spx_range_rule(ttm)
         logk = np.linspace(logk_lu[0], logk_lu[1], 50)
         strike_array = np.exp(logk)*S0
-        smile = model.get_iv(prices=prices, ttm=ttm, strikes=strike_array, forward=S0)
+        smile = model.get_iv(prices=prices, ttm=ttm, n_steps=n_steps, strikes=strike_array, forward=S0)
         ivs.append(smile)
         logks.append(logk)
 
