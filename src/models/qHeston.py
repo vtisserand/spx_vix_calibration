@@ -404,6 +404,8 @@ class qHeston(BaseModel):
         vix = np.sqrt((10000 / delta) * vix)
         return vix
 
+    # TODO: if iv found is below intrinsic value, return iv of intrinsic value (0%) as it penalized such tricky
+    # parameters sets.
     def get_iv(
         self, prices: np.ndarray, ttm: float, n_steps: int, strikes: np.ndarray, forward: float
     ):
@@ -434,7 +436,7 @@ class qHeston(BaseModel):
         vix_option_chain: Optional[OptionChain] = None,
         vix_futures: Optional[np.ndarray] = None,
     ):
-        n_steps = 3*NB_DAYS_PER_YEAR # Change to ensure less biased MC estimator
+        n_steps = NB_DAYS_PER_YEAR # Change to ensure less biased MC estimator
 
         market_vols = option_chain.get_iv()
         
