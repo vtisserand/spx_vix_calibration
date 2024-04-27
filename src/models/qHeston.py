@@ -73,16 +73,6 @@ class qHeston(BaseModel):
             KernelFlavour.TWO_FACTOR: self._std_ji_two_factor,
         }
 
-    def fit(
-        self,
-        strikes: np.ndarray | list[float],
-        prices: np.ndarray | list[float],
-        forward_price: float = 100,
-        maturity: float = 1,
-    ):
-        """ """
-        pass
-
     # We define the w_j^i for each kernel.
     def _std_ji_rough(self, tj: float, ti_s: np.ndarray | list) -> np.ndarray:
         std_ji = np.sqrt(
