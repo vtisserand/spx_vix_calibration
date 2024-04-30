@@ -394,21 +394,30 @@ class qHeston(BaseModel):
         vix = np.sqrt((10000 / delta) * vix)
         return vix
 
-    # TODO: if iv found is below intrinsic value, return iv of intrinsic value (0%) as it penalized such tricky
-    # parameters sets.
     def get_iv(
-        self, prices: np.ndarray, ttm: float, n_steps: int, strikes: np.ndarray, forward: float
+        self,
+        prices: np.ndarray,
+        ttm: float,
+        n_steps: int,
+        strikes: np.ndarray,
+        forward: float,
     ):
         prices_ttm = prices[int(ttm * n_steps)]
 
-        # intrinsic_value = np.maximum(strikes - forward, 0.)
+        intrinsic_value = np.maximum(
+            np.array(strikes) - np.array([forward] * len(strikes)), 0.0
+        )
         opt_prices = np.mean(
             np.maximum(
-                strikes - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),
+                strikes
+                - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),
                 0,
             ),
             axis=0,
         )
+        opt_prices = np.where(
+            opt_prices >= intrinsic_value, opt_prices, intrinsic_value
+        )  # Penalize arbitrageable values.
 
         iv_mid = vec_find_vol_rat(opt_prices, forward, strikes, ttm, 0, "p")
         return iv_mid
@@ -419,32 +428,45 @@ class qHeston(BaseModel):
     ):
         return option_chain.get_iv()
 
-
     def fit(
         self,
         option_chain: OptionChain,
         vix_option_chain: Optional[OptionChain] = None,
         vix_futures: Optional[np.ndarray] = None,
     ):
-        n_steps = NB_DAYS_PER_YEAR # Change to ensure less biased MC estimator
+        n_steps = NB_DAYS_PER_YEAR  # Change to ensure less biased MC estimator
 
         market_vols = option_chain.get_iv()
-        
+
         def objective(params: np.ndarray, *args) -> float:
             print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
-            prices, _ = self.generate_paths(n_steps=n_steps, length=1.1*max(option_chain.ttms), n_sims=300000)
+            prices, _ = self.generate_paths(
+                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=300000
+            )
 
             # Here we group the computations by slices (options accros different strikes for the same maturity).
             slices = option_chain.group_by_slice()
             model_vols = []
             for ttm, slice_data in slices.items():
-                model_vols.append(self.get_iv(prices, ttm, n_steps, slice_data["strikes"], slice_data["forwards"][0],))
+                model_vols.append(
+                    self.get_iv(
+                        prices,
+                        ttm,
+                        n_steps,
+                        slice_data["strikes"],
+                        slice_data["forwards"][0],
+                    )
+                )
             print(f"market: {100*np.array(market_vols)}")
             print(f"model: {100*np.array(model_vols).flatten()}")
 
-            error = np.sum(np.square(100*np.array(model_vols).flatten() - 100*np.array(market_vols)))
+            error = np.sum(
+                np.square(
+                    100 * np.array(model_vols).flatten() - 100 * np.array(market_vols)
+                )
+            )
             print(f"error: {error}")
 
             return error
@@ -455,7 +477,7 @@ class qHeston(BaseModel):
 
             pass
 
-        init_guess = np.array([0.3, 0.2, 0.005, 0.15, 0.7, 1/52, -0.8, 0.2])
+        init_guess = np.array([0.3, 0.2, 0.005, 0.15, 0.7, 1 / 52, -0.8, 0.2])
 
         if vix_option_chain is not None:
             bounds = ((-1, 1), (0, 1), (0, 1))
@@ -463,6 +485,8 @@ class qHeston(BaseModel):
                 objective_joint, init_guess, args=None, method="SLSQP", bounds=bounds
             )
 
-        res = minimize(objective, init_guess, args=(option_chain,), method="nelder-mead") 
+        res = minimize(
+            objective, init_guess, args=(option_chain,), method="SLSQP"
+        )
 
         return res.x
