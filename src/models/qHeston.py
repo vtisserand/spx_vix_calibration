@@ -494,10 +494,10 @@ class qHeston(BaseModel):
 
             return error
 
+        spx_market_vols = option_chain.get_iv()
+        vix_market_vols = vix_option_chain.get_iv()
         def objective_joint(params: np.ndarray, args: np.ndarray) -> float:
-            spx_market_vols = option_chain.get_iv()
-            vix_market_vols = vix_option_chain.get_iv()
-
+            print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
             prices, V = self.generate_paths(
@@ -535,7 +535,7 @@ class qHeston(BaseModel):
 
             # VIX futures error
             vix_fut_model = vix.mean(axis=1)
-            vix_fut_error = np.sum(
+            vix_fut_error = 10 * np.sum(
                 np.square(np.array(vix_fut_model) - np.array(vix_futures))
             )
 
@@ -555,14 +555,15 @@ class qHeston(BaseModel):
 
             vix_error = np.sum(
                 np.square(
-                    np.array(vix_model_vols).flatten() - np.array(vix_market_vols)
+                    100*np.array(vix_model_vols).flatten() - 100*np.array(vix_market_vols)
                 )
             )
 
+            print(f"Errors: SPX {spx_error}, VIX futures {vix_fut_error}, VIX {vix_error}.")
             return spx_error + vix_fut_error + vix_error
         
 
-        init_guess = np.array([0.4, 0.2, 0.005, 0.15, 0.7, 1 / 52, -0.8, 0.4])
+        init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1/52, -0.9, 0.5])
 
         if vix_option_chain is not None:
             res = minimize(
