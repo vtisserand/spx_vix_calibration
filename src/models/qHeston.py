@@ -422,11 +422,30 @@ class qHeston(BaseModel):
         iv_mid = vec_find_vol_rat(opt_prices, forward, strikes, ttm, 0, "p")
         return iv_mid
 
-    def get_iv_from_option_chain(
+    def get_iv_vix(
         self,
-        option_chain: OptionChain,
+        prices_ttm: np.ndarray,
+        ttm: np.ndarray,
+        strikes: np.ndarray,
+        future: float,
     ):
-        return option_chain.get_iv()
+        intrinsic_value = np.maximum(
+            np.array(strikes) - np.array([future] * len(strikes)), 0.0
+        )
+        opt_prices = np.mean(
+            np.maximum(
+                strikes
+                - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),
+                0,
+            ),
+            axis=0,
+        )
+        opt_prices = np.where(
+            opt_prices >= intrinsic_value, opt_prices, intrinsic_value
+        )  # Penalize arbitrageable values.
+
+        iv_mid = vec_find_vol_rat(opt_prices, future, strikes, ttm, 0, "p")
+        return iv_mid
 
     def fit(
         self,
@@ -438,12 +457,14 @@ class qHeston(BaseModel):
 
         market_vols = option_chain.get_iv()
 
+        errs = []
+
         def objective(params: np.ndarray, *args) -> float:
             print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
             prices, _ = self.generate_paths(
-                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=300000
+                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=100000
             )
 
             # Here we group the computations by slices (options accros different strikes for the same maturity).
@@ -467,6 +488,7 @@ class qHeston(BaseModel):
                     100 * np.array(model_vols).flatten() - 100 * np.array(market_vols)
                 )
             )
+            errs.append(error)
             print(f"error: {error}")
 
             return error
@@ -475,18 +497,29 @@ class qHeston(BaseModel):
             spx_market_vols = option_chain.get_iv()
             vix_market_vols = vix_option_chain.get_iv()
 
+            self.set_parameters(*params)
+            # Sample paths with a buffer for long maturities
+            prices, V = self.generate_paths(
+                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=100000
+            )
+
+            vix = self.compute_vix(t=[1/12, 0.25, 0.5], tau=tau, delta=delta, V=V, n_steps=NB_DAYS_PER_YEAR, n_sims=100000)
+
+
             pass
 
-        init_guess = np.array([0.3, 0.2, 0.005, 0.15, 0.7, 1 / 52, -0.8, 0.2])
+        init_guess = np.array([0.4, 0.2, 0.005, 0.15, 0.7, 1 / 52, -0.8, 0.4])
 
         if vix_option_chain is not None:
-            bounds = ((-1, 1), (0, 1), (0, 1))
             res = minimize(
-                objective_joint, init_guess, args=None, method="SLSQP", bounds=bounds
+                objective_joint,
+                init_guess,
+                args=None,
+                method="SLSQP",
             )
 
         res = minimize(
-            objective, init_guess, args=(option_chain,), method="SLSQP"
+            objective, init_guess, args=(option_chain,), method="nelder-mead", tol=10
         )
 
-        return res.x
+        return res.x, errs

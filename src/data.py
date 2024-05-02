@@ -70,6 +70,12 @@ class OptionChain:
             
         return slice_groups
     
+    def get_unique_ttms(self):
+        """
+        Returns an ordered list of the maturities for which we have data.
+        """
+        return sorted(set(self.ttms), key=lambda x: self.ttms.index(x))
+    
     def plot_2d(self):
         """
         Scatter plot of the option surface assuming ivs are provided.
