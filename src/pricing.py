@@ -8,7 +8,7 @@ from src.config import NB_DAYS_PER_YEAR
 def get_atm_skew(model: BaseModel, prices: np.ndarray, S0: float=100., n_steps: int=NB_DAYS_PER_YEAR, plot: bool=True, fit: bool=True):
     hh = 1e-4
     ttms = np.exp(np.linspace(np.log(1/52),np.log(2),20))
-    ttms = np.append([1/252], ttms)
+    # ttms = np.append([1/252], ttms)
     strike_array = np.exp(np.array([-hh/2,hh/2]))*S0
 
     skew_calc = []

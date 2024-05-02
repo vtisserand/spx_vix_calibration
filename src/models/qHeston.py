@@ -394,31 +394,58 @@ class qHeston(BaseModel):
         vix = np.sqrt((10000 / delta) * vix)
         return vix
 
-    # TODO: if iv found is below intrinsic value, return iv of intrinsic value (0%) as it penalized such tricky
-    # parameters sets.
     def get_iv(
-        self, prices: np.ndarray, ttm: float, n_steps: int, strikes: np.ndarray, forward: float
+        self,
+        prices: np.ndarray,
+        ttm: float,
+        n_steps: int,
+        strikes: np.ndarray,
+        forward: float,
     ):
         prices_ttm = prices[int(ttm * n_steps)]
 
-        # intrinsic_value = np.maximum(strikes - forward, 0.)
+        intrinsic_value = np.maximum(
+            np.array(strikes) - np.array([forward] * len(strikes)), 0.0
+        )
         opt_prices = np.mean(
             np.maximum(
-                strikes - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),
+                strikes
+                - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),
                 0,
             ),
             axis=0,
         )
+        opt_prices = np.where(
+            opt_prices >= intrinsic_value, opt_prices, intrinsic_value
+        )  # Penalize arbitrageable values.
 
         iv_mid = vec_find_vol_rat(opt_prices, forward, strikes, ttm, 0, "p")
         return iv_mid
 
-    def get_iv_from_option_chain(
+    def get_iv_vix(
         self,
-        option_chain: OptionChain,
+        prices_ttm: np.ndarray,
+        ttm: np.ndarray,
+        strikes: np.ndarray,
+        future: float,
     ):
-        return option_chain.get_iv()
+        intrinsic_value = np.maximum(
+            np.array(strikes) - np.array([future] * len(strikes)), 0.0
+        )
+        opt_prices = np.mean(
+            np.maximum(
+                strikes
+                - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),
+                0,
+            ),
+            axis=0,
+        )
+        opt_prices = np.where(
+            opt_prices >= intrinsic_value, opt_prices, intrinsic_value
+        )  # Penalize arbitrageable values.
 
+        iv_mid = vec_find_vol_rat(opt_prices, future, strikes, ttm, 0, "p")
+        return iv_mid
 
     def fit(
         self,
@@ -426,43 +453,128 @@ class qHeston(BaseModel):
         vix_option_chain: Optional[OptionChain] = None,
         vix_futures: Optional[np.ndarray] = None,
     ):
-        n_steps = NB_DAYS_PER_YEAR # Change to ensure less biased MC estimator
+        n_steps = NB_DAYS_PER_YEAR  # Change to ensure less biased MC estimator
+        n_sims = 100000
 
         market_vols = option_chain.get_iv()
-        
+
+        errs = []
+
         def objective(params: np.ndarray, *args) -> float:
             print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
-            prices, _ = self.generate_paths(n_steps=n_steps, length=1.1*max(option_chain.ttms), n_sims=300000)
+            prices, _ = self.generate_paths(
+                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=n_sims
+            )
 
             # Here we group the computations by slices (options accros different strikes for the same maturity).
             slices = option_chain.group_by_slice()
             model_vols = []
             for ttm, slice_data in slices.items():
-                model_vols.append(self.get_iv(prices, ttm, n_steps, slice_data["strikes"], slice_data["forwards"][0],))
+                model_vols.append(
+                    self.get_iv(
+                        prices,
+                        ttm,
+                        n_steps,
+                        slice_data["strikes"],
+                        slice_data["forwards"][0],
+                    )
+                )
             print(f"market: {100*np.array(market_vols)}")
             print(f"model: {100*np.array(model_vols).flatten()}")
 
-            error = np.sum(np.square(100*np.array(model_vols).flatten() - 100*np.array(market_vols)))
+            error = np.sum(
+                np.square(
+                    100 * np.array(model_vols).flatten() - 100 * np.array(market_vols)
+                )
+            )
+            errs.append(error)
             print(f"error: {error}")
 
             return error
 
+        spx_market_vols = option_chain.get_iv()
+        vix_market_vols = vix_option_chain.get_iv()
         def objective_joint(params: np.ndarray, args: np.ndarray) -> float:
-            spx_market_vols = option_chain.get_iv()
-            vix_market_vols = vix_option_chain.get_iv()
-
-            pass
-
-        init_guess = np.array([0.3, 0.2, 0.005, 0.15, 0.7, 1/52, -0.8, 0.2])
-
-        if vix_option_chain is not None:
-            bounds = ((-1, 1), (0, 1), (0, 1))
-            res = minimize(
-                objective_joint, init_guess, args=None, method="SLSQP", bounds=bounds
+            print(f"params: {params}")
+            self.set_parameters(*params)
+            # Sample paths with a buffer for long maturities
+            prices, V = self.generate_paths(
+                n_steps=n_steps, length=1.2 * max(option_chain.ttms), n_sims=n_sims
             )
 
-        res = minimize(objective, init_guess, args=(option_chain,), method="nelder-mead") 
+            # SPX error
+            spx_slices = option_chain.group_by_slice()
+            spx_model_vols = []
+            for ttm, slice_data in spx_slices.items():
+                spx_model_vols.append(
+                    self.get_iv(
+                        prices,
+                        ttm,
+                        n_steps,
+                        slice_data["strikes"],
+                        slice_data["forwards"][0],
+                    )
+                )
+            spx_error = np.sum(
+                np.square(
+                    100 * np.array(spx_model_vols).flatten()
+                    - 100 * np.array(spx_market_vols)
+                )
+            )
 
-        return res.x
+            # VIX data
+            vix_ttms = vix_option_chain.get_unique_ttms()
+            tt = self.grid
+            delta = 1 / 12  # VIX sees 1 month further
+            taus = np.concatenate([[1e-5], tt[1 : int(n_steps * delta)]])
+            vix = self.compute_vix(
+                t=vix_ttms, tau=taus, delta=delta, V=V, n_steps=n_steps, n_sims=n_sims
+            )
+
+            # VIX futures error
+            vix_fut_model = vix.mean(axis=1)
+            vix_fut_error = 10 * np.sum(
+                np.square(np.array(vix_fut_model) - np.array(vix_futures))
+            )
+
+            # VIX error
+            vix_slices = vix_option_chain.group_by_slice()
+            vix_model_vols = []
+            for (i, data) in enumerate(vix_slices.items()):
+                ttm, slice_data = data[0], data[1]
+                vix_model_vols.append(
+                    self.get_iv_vix(
+                        prices_ttm=vix,
+                        ttm=ttm,
+                        strikes=slice_data["strikes"],
+                        future=vix_fut_model[i],
+                    )
+                )
+
+            vix_error = np.sum(
+                np.square(
+                    100*np.array(vix_model_vols).flatten() - 100*np.array(vix_market_vols)
+                )
+            )
+
+            print(f"Errors: SPX {spx_error}, VIX futures {vix_fut_error}, VIX {vix_error}.")
+            return spx_error + vix_fut_error + vix_error
+        
+
+        init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1/52, -0.9, 0.5])
+
+        if vix_option_chain is not None:
+            res = minimize(
+                objective_joint,
+                init_guess,
+                args=None,
+                method="SLSQP",
+            )
+
+        res = minimize(
+            objective, init_guess, args=(option_chain,), method="nelder-mead", tol=10
+        )
+
+        return res.x, errs
