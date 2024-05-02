@@ -454,6 +454,7 @@ class qHeston(BaseModel):
         vix_futures: Optional[np.ndarray] = None,
     ):
         n_steps = NB_DAYS_PER_YEAR  # Change to ensure less biased MC estimator
+        n_sims = 100000
 
         market_vols = option_chain.get_iv()
 
@@ -464,7 +465,7 @@ class qHeston(BaseModel):
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
             prices, _ = self.generate_paths(
-                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=100000
+                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=n_sims
             )
 
             # Here we group the computations by slices (options accros different strikes for the same maturity).
@@ -500,13 +501,66 @@ class qHeston(BaseModel):
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
             prices, V = self.generate_paths(
-                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=100000
+                n_steps=n_steps, length=1.2 * max(option_chain.ttms), n_sims=n_sims
             )
 
-            vix = self.compute_vix(t=[1/12, 0.25, 0.5], tau=tau, delta=delta, V=V, n_steps=NB_DAYS_PER_YEAR, n_sims=100000)
+            # SPX error
+            spx_slices = option_chain.group_by_slice()
+            spx_model_vols = []
+            for ttm, slice_data in spx_slices.items():
+                spx_model_vols.append(
+                    self.get_iv(
+                        prices,
+                        ttm,
+                        n_steps,
+                        slice_data["strikes"],
+                        slice_data["forwards"][0],
+                    )
+                )
+            spx_error = np.sum(
+                np.square(
+                    100 * np.array(spx_model_vols).flatten()
+                    - 100 * np.array(spx_market_vols)
+                )
+            )
 
+            # VIX data
+            vix_ttms = vix_option_chain.get_unique_ttms()
+            tt = self.grid
+            delta = 1 / 12  # VIX sees 1 month further
+            taus = np.concatenate([[1e-5], tt[1 : int(n_steps * delta)]])
+            vix = self.compute_vix(
+                t=vix_ttms, tau=taus, delta=delta, V=V, n_steps=n_steps, n_sims=n_sims
+            )
 
-            pass
+            # VIX futures error
+            vix_fut_model = vix.mean(axis=1)
+            vix_fut_error = np.sum(
+                np.square(np.array(vix_fut_model) - np.array(vix_futures))
+            )
+
+            # VIX error
+            vix_slices = vix_option_chain.group_by_slice()
+            vix_model_vols = []
+            for (i, data) in enumerate(vix_slices.items()):
+                ttm, slice_data = data[0], data[1]
+                vix_model_vols.append(
+                    self.get_iv_vix(
+                        prices_ttm=vix,
+                        ttm=ttm,
+                        strikes=slice_data["strikes"],
+                        future=vix_fut_model[i],
+                    )
+                )
+
+            vix_error = np.sum(
+                np.square(
+                    np.array(vix_model_vols).flatten() - np.array(vix_market_vols)
+                )
+            )
+
+            return spx_error + vix_fut_error + vix_error
+        
 
         init_guess = np.array([0.4, 0.2, 0.005, 0.15, 0.7, 1 / 52, -0.8, 0.4])
 
