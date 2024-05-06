@@ -1,9 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import norm
 from typing import Optional
 from collections import defaultdict
 from typing import Union
 
+from numba import njit
 from py_vollib.black_scholes.implied_volatility import implied_volatility
 
 vec_find_vol_rat = np.vectorize(
@@ -14,8 +16,24 @@ vec_find_vol_rat = np.vectorize(
 # To represent volatility surfaces, we draw inspiration from Arthur Sepp's implementation of an option chain.
 # The idea is to flatten the 3D data (like when pivoting a table) and have arrays maturity, strikes, prices.
 
+@njit(cache=False, fastmath=True)
+def erf(x: Union[float, np.ndarray]) -> float:
+    """
+    Error function approximation
+    """
+    z = np.abs(x)
+    t = 1. / (1. + 0.5*z)
+    r = t * np.exp(-z*z-1.26551223+t*(1.00002368+t*(0.37409196+t*(0.09678418+t*(-0.18628806+t*(0.27886807+
+        t*(-1.13520398+t*(1.48851587+t*(-.82215223+t*0.17087277)))))))))
+    fcc = np.where(np.greater(x, 0.0), r, 2.0-r)
+    return fcc
 
-def normal_pdf(x: float, mean: float = 0.0, var: float = 1.0):
+@njit(cache=False, fastmath=True)
+def normal_cdf(x: float) -> float:
+    return 1. - 0.5*erf(x/(np.sqrt(2.0)))
+
+@njit(cache=False, fastmath=True)
+def normal_pdf(x: float, mean: float = 0.0, var: float = 1.0) -> float:
     """
     Returns the normal density evaluated at point x.
     """
@@ -29,13 +47,11 @@ def ivs_to_prices(
     strikes: np.ndarray,
     underlying: Union[float, np.ndarray] = 100.0,
 ):
-    d_1 = (
-        (np.log(underlying / strikes) + ivs**2 / 2 * np.sqrt(ttms))
-        / ivs
-        * np.sqrt(ttms)
-    )
+    d_1 = (np.log(underlying / strikes) + (ivs ** 2 / 2) + ttms) / (ivs + np.sqrt(ttms))
     d_2 = d_1 - ivs * np.sqrt(ttms)
-    bs_prices = underlying * normal_pdf(d_1) - strikes * normal_pdf(d_2)
+    print(d_1)
+    print(d_2)
+    bs_prices = underlying * norm.cdf(d_1) - strikes * norm.cdf(d_2)
     return bs_prices
 
 
