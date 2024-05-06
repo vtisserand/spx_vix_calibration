@@ -14,7 +14,7 @@ vec_find_vol_rat = np.vectorize(implied_volatility)
 
 from src.models.base_model import BaseModel
 from src.models.kernels import KernelFlavour
-from src.data import OptionChain
+from src.data import OptionChain, prices_to_ivs, ivs_to_prices
 from src.config import NB_DAYS_PER_YEAR
 
 
@@ -394,6 +394,19 @@ class qHeston(BaseModel):
         vix = np.sqrt((10000 / delta) * vix)
         return vix
 
+    def get_prices(
+        self,
+        prices: np.ndarray,
+        ttm: float,
+        n_steps: int,
+        strikes: np.ndarray,
+        forward: float,
+    ):
+        prices_ttm = prices[int(ttm * n_steps)]
+        opt_prices = np.mean(np.maximum(strikes - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),0,),axis=0,)
+        return opt_prices
+
+
     def get_iv(
         self,
         prices: np.ndarray,
@@ -494,9 +507,45 @@ class qHeston(BaseModel):
 
             return error
 
+        market_prices = ivs_to_prices(ivs=option_chain.ivs, ttms=option_chain.ttms, strikes=option_chain.ttms, underlying=option_chain.underlying)
+        def objective_price_vega_weighted(params: np.ndarray, *args) -> float:
+            print(f"params: {params}")
+            self.set_parameters(*params)
+            # Sample paths with a buffer for long maturities
+            prices, _ = self.generate_paths(
+                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=n_sims
+            )
+
+            # Here we group the computations by slices (options accros different strikes for the same maturity).
+            slices = option_chain.group_by_slice()
+            model_prices = []
+            for ttm, slice_data in slices.items():
+                model_prices.append(
+                    self.get_prices(
+                        prices,
+                        ttm,
+                        n_steps,
+                        slice_data["strikes"],
+                        slice_data["forwards"][0],
+                    )
+                )
+
+            print(f"market: {100*np.array(market_prices)}")
+            print(f"model: {100*np.array(model_prices).flatten()}")
+
+            error = np.sum(
+                np.square(np.array(model_prices).flatten() - np.array(market_prices)) / (option_chain.get_vegas()/100)
+            )
+            errs.append(error)
+            print(f"error: {error}")
+
+            return error
+
         spx_market_vols = option_chain.get_iv()
-        vix_market_vols = vix_option_chain.get_iv()
+        # vix_market_vols = vix_option_chain.get_iv()
+
         def objective_joint(params: np.ndarray, args: np.ndarray) -> float:
+            vix_market_vols = vix_option_chain.get_iv()
             print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
@@ -542,7 +591,7 @@ class qHeston(BaseModel):
             # VIX error
             vix_slices = vix_option_chain.group_by_slice()
             vix_model_vols = []
-            for (i, data) in enumerate(vix_slices.items()):
+            for i, data in enumerate(vix_slices.items()):
                 ttm, slice_data = data[0], data[1]
                 vix_model_vols.append(
                     self.get_iv_vix(
@@ -555,15 +604,17 @@ class qHeston(BaseModel):
 
             vix_error = np.sum(
                 np.square(
-                    100*np.array(vix_model_vols).flatten() - 100*np.array(vix_market_vols)
+                    100 * np.array(vix_model_vols).flatten()
+                    - 100 * np.array(vix_market_vols)
                 )
             )
 
-            print(f"Errors: SPX {spx_error}, VIX futures {vix_fut_error}, VIX {vix_error}.")
+            print(
+                f"Errors: SPX {spx_error}, VIX futures {vix_fut_error}, VIX {vix_error}."
+            )
             return spx_error + vix_fut_error + vix_error
-        
 
-        init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1/52, -0.9, 0.5])
+        init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1 / 52, -0.9, 0.5])
 
         if vix_option_chain is not None:
             res = minimize(
@@ -574,7 +625,7 @@ class qHeston(BaseModel):
             )
 
         res = minimize(
-            objective, init_guess, args=(option_chain,), method="nelder-mead", tol=10
+            objective_price_vega_weighted, init_guess, args=(option_chain,), method="nelder-mead", tol=10
         )
 
         return res.x, errs
