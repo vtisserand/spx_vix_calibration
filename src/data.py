@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Optional
 from collections import defaultdict
+from typing import Union
 
 from py_vollib.black_scholes.implied_volatility import implied_volatility
 
@@ -14,6 +15,13 @@ vec_find_vol_rat = np.vectorize(
 # The idea is to flatten the 3D data (like when pivoting a table) and have arrays maturity, strikes, prices.
 
 
+def normal_pdf(x: float, mean: float=0.0, var: float=1.0):
+    """
+    Returns the normal density evaluated at point x.
+    """
+    vol = np.sqrt(var)
+    return np.exp(-0.5*np.square((x-mean)/vol))/(vol*np.sqrt(2.0*np.pi))
+
 class OptionChain:
     def __init__(
         self,
@@ -21,6 +29,7 @@ class OptionChain:
         strikes: np.ndarray,
         forwards: np.ndarray,
         flags: np.ndarray,
+        underlying: Union[float, np.ndarray]=100.0,
         ivs: Optional[np.ndarray] = None,
         prices: Optional[np.ndarray] = None,
         bid_ivs: Optional[np.ndarray] = None,
@@ -28,19 +37,20 @@ class OptionChain:
         bid_prices: Optional[np.ndarray] = None,
         ask_prices: Optional[np.ndarray] = None,
     ):
-        self.ttms = ttms
-        self.strikes = strikes
-        self.forwards = forwards
-        self.flags = flags
+        self.underlying = np.array(underlying)
+        self.ttms = np.array(ttms)
+        self.strikes = np.array(strikes)
+        self.forwards = np.array(forwards)
+        self.flags = np.array(flags)
 
         if bid_ivs is not None and ask_ivs is not None:
-            self.ivs = (bid_ivs + ask_ivs) / 2
+            self.ivs = np.array((bid_ivs + ask_ivs) / 2)
         elif ivs is not None:
-            self.ivs = ivs
+            self.ivs = np.array(ivs)
         elif bid_prices is not None and ask_prices is not None:
-            self.prices = (bid_prices + ask_prices) / 2
+            self.prices = np.array((bid_prices + ask_prices) / 2)
         elif prices is not None:
-            self.prices = prices
+            self.prices = np.array(prices)
         else:
             raise ValueError("Incomplete option chain: please provide prices or implied volatility for all instruments.")
 
@@ -75,6 +85,15 @@ class OptionChain:
         Returns an ordered list of the maturities for which we have data.
         """
         return sorted(set(self.ttms), key=lambda x: self.ttms.index(x))
+    
+    def get_vegas(self):
+        """
+        Return the chain vegas -- the Black Scholes greek at time t for a give maturity T is 
+        `S_t N'(d_1) \sqrt(T-t)`, where `d_1 = (\log(S_t/K) + (r + \sigma^2/2)(T-t)) / \sigma \sqrt(T-t)`
+        and `N'(.)` is the standard normal pdf. Assumed `r=0`.
+        """
+        d_1 = (np.log(self.underlying / self.strikes) + self.ivs**2 / 2 * np.sqrt(self.ttms)) / self.ivs * np.sqrt(self.ttms)
+        return self.underlying * normal_pdf(d_1) * np.sqrt(self.ttms)
     
     def plot_2d(self):
         """
