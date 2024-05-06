@@ -570,7 +570,7 @@ class qHeston(BaseModel):
                 objective_joint,
                 init_guess,
                 args=None,
-                method="SLSQP",
+                method="nelder-mead",
             )
 
         res = minimize(
