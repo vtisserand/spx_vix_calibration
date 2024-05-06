@@ -61,9 +61,22 @@ class OptionChain:
             self.ivs = np.zeros_like(self.prices)
             
             for i in range(len(self.prices)):
-                self.ivs[i] = vec_find_vol_rat(self.prices[i], self.forward[i], self.strikes[i], self.ttms[i], 0, self.flags[i])
+                self.ivs[i] = vec_find_vol_rat(self.prices[i], self.forwards[i], self.strikes[i], self.ttms[i], 0, self.flags[i])
 
         return self.ivs
+    
+    def ivs_to_prices(self):
+        d_1 = (np.log(self.underlying / self.strikes) + self.ivs**2 / 2 * np.sqrt(self.ttms)) / self.ivs * np.sqrt(self.ttms)
+        d_2 = d_1 - self.ivs * np.sqrt(self.ttms)
+        bs_prices = self.underlying * normal_pdf(d_1) - self.strikes * normal_pdf(d_2)
+        return bs_prices
+
+
+    def prices_to_ivs(self):
+        res = []
+        for i in range(len(self.prices)):
+            res.append(vec_find_vol_rat(self.prices[i], self.forwards[i], self.strikes[i], self.ttms[i], 0, self.flags[i]))
+        return res
 
     def group_by_slice(self):
         slice_groups = defaultdict(lambda: {"strikes": [], "forwards": [], "flags": []})
