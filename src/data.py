@@ -47,11 +47,12 @@ def ivs_to_prices(
     strikes: np.ndarray,
     underlying: Union[float, np.ndarray] = 100.0,
 ):
-    d_1 = (np.log(underlying / strikes) + (ivs ** 2 / 2) + ttms) / (ivs + np.sqrt(ttms))
+    """
+    For a put.
+    """
+    d_1 = (np.log(underlying / strikes) + (ivs ** 2 / 2) * ttms) / (ivs * np.sqrt(ttms))
     d_2 = d_1 - ivs * np.sqrt(ttms)
-    print(d_1)
-    print(d_2)
-    bs_prices = underlying * norm.cdf(d_1) - strikes * norm.cdf(d_2)
+    bs_prices = - underlying * norm.cdf(-d_1) + strikes * norm.cdf(-d_2)
     return bs_prices
 
 

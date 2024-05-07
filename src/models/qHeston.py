@@ -507,7 +507,7 @@ class qHeston(BaseModel):
 
             return error
 
-        market_prices = ivs_to_prices(ivs=option_chain.ivs, ttms=option_chain.ttms, strikes=option_chain.ttms, underlying=option_chain.underlying)
+        market_prices = ivs_to_prices(ivs=option_chain.ivs, ttms=option_chain.ttms, strikes=option_chain.strikes, underlying=option_chain.underlying)
         def objective_price_vega_weighted(params: np.ndarray, *args) -> float:
             print(f"params: {params}")
             self.set_parameters(*params)
@@ -625,7 +625,7 @@ class qHeston(BaseModel):
             )
 
         res = minimize(
-            objective_price_vega_weighted, init_guess, args=(option_chain,), method="nelder-mead", tol=10
+            objective_price_vega_weighted, init_guess, args=(option_chain,), method="nelder-mead",
         )
 
         return res.x, errs
