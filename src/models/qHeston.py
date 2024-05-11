@@ -463,18 +463,27 @@ class qHeston(BaseModel):
     def fit(
         self,
         option_chain: OptionChain,
-        vix_option_chain: Optional[OptionChain] = None,
-        vix_futures: Optional[np.ndarray] = None,
+        is_vega_weighted: bool=False,
+        verbose: Optional[bool]=False,
     ):
+        """
+        Method to fit a qHeston model on a single surface. Default minimizes MSE on implied volatilities while if
+        is_vega_weighted is set to true minimizes MSE on prices, applying inverse vega weights such that the wings 
+        still matter and the smile does not fade away.
+        """
         n_steps = NB_DAYS_PER_YEAR  # Change to ensure less biased MC estimator
         n_sims = 100000
 
-        market_vols = option_chain.get_iv()
+        if is_vega_weighted:
+            market_data = ivs_to_prices(ivs=option_chain.ivs, ttms=option_chain.ttms, strikes=option_chain.strikes, underlying=option_chain.underlying)
+        else:
+            market_data = option_chain.get_iv()
 
         errs = []
 
         def objective(params: np.ndarray, *args) -> float:
-            print(f"params: {params}")
+            if verbose:
+                print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
             prices, _ = self.generate_paths(
@@ -483,31 +492,44 @@ class qHeston(BaseModel):
 
             # Here we group the computations by slices (options accros different strikes for the same maturity).
             slices = option_chain.group_by_slice()
-            model_vols = []
+            model_data = []
             for ttm, slice_data in slices.items():
-                model_vols.append(
-                    self.get_iv(
-                        prices,
-                        ttm,
-                        n_steps,
-                        slice_data["strikes"],
-                        slice_data["forwards"][0],
+                if is_vega_weighted:
+                    model_data.append(
+                        self.get_prices(
+                            prices,
+                            ttm,
+                            n_steps,
+                            slice_data["strikes"],
+                            slice_data["forwards"][0],
+                        )
                     )
-                )
-            print(f"market: {100*np.array(market_vols)}")
-            print(f"model: {100*np.array(model_vols).flatten()}")
+                else:
+                    model_data.append(
+                        self.get_iv(
+                            prices,
+                            ttm,
+                            n_steps,
+                            slice_data["strikes"],
+                            slice_data["forwards"][0],
+                        )
+                    )
+            if verbose:
+                print(f"market: {100*np.array(market_data)}")
+                print(f"model: {100*np.array(model_data).flatten()}")
 
             error = np.sum(
                 np.square(
-                    100 * np.array(model_vols).flatten() - 100 * np.array(market_vols)
+                    100 * np.array(model_data).flatten() - 100 * np.array(market_data)
                 )
             )
             errs.append(error)
-            print(f"error: {error}")
+
+            if verbose:
+                print(f"error: {error}")
 
             return error
 
-        market_prices = ivs_to_prices(ivs=option_chain.ivs, ttms=option_chain.ttms, strikes=option_chain.strikes, underlying=option_chain.underlying)
         def objective_price_vega_weighted(params: np.ndarray, *args) -> float:
             print(f"params: {params}")
             self.set_parameters(*params)
@@ -520,15 +542,7 @@ class qHeston(BaseModel):
             slices = option_chain.group_by_slice()
             model_prices = []
             for ttm, slice_data in slices.items():
-                model_prices.append(
-                    self.get_prices(
-                        prices,
-                        ttm,
-                        n_steps,
-                        slice_data["strikes"],
-                        slice_data["forwards"][0],
-                    )
-                )
+                
 
             print(f"market: {100*np.array(market_prices)}")
             print(f"model: {100*np.array(model_prices).flatten()}")
@@ -541,11 +555,35 @@ class qHeston(BaseModel):
 
             return error
 
+
+        init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1 / 52, -0.9, 0.5])
+
+        res = minimize(
+            objective_price_vega_weighted, init_guess, args=(option_chain,), method="nelder-mead",
+        )
+
+        return res.x, errs
+    
+    def fit_joint(
+        self,
+        option_chain: OptionChain,
+        vix_option_chain: OptionChain,
+        vix_futures: np.ndarray,
+        is_vega_weighted: bool=False,
+    ):
+        """
+        Method to fit a qHeston model on SPX and VIX surfaces (joint calibration problem).
+        Default minimizes MSE on implied volatilities while if is_vega_weighted is set to true
+        minimizes MSE on prices, applying inverse vega weights such that the wings still matter 
+        and the smile does not fade away.
+        """
+        n_steps = NB_DAYS_PER_YEAR  # Change to ensure less biased MC estimator
+        n_sims = 100000
+
         spx_market_vols = option_chain.get_iv()
-        # vix_market_vols = vix_option_chain.get_iv()
+        vix_market_vols = vix_option_chain.get_iv()
 
         def objective_joint(params: np.ndarray, args: np.ndarray) -> float:
-            vix_market_vols = vix_option_chain.get_iv()
             print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
@@ -616,16 +654,12 @@ class qHeston(BaseModel):
 
         init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1 / 52, -0.9, 0.5])
 
-        if vix_option_chain is not None:
-            res = minimize(
+
+        res = minimize(
                 objective_joint,
                 init_guess,
                 args=None,
                 method="nelder-mead",
             )
-
-        res = minimize(
-            objective_price_vega_weighted, init_guess, args=(option_chain,), method="nelder-mead",
-        )
-
-        return res.x, errs
+        
+        return res.x
