@@ -99,6 +99,9 @@ def estimate_H(series: Union[List, np.ndarray], vol_series: Union[List, np.ndarr
     slopes = np.array(slopes)
     inters = np.array(inters)
 
+    sl,inc = scipy.stats.linregress(q_array[:,0], slopes)[:2]
+    print(f"Estimated Hurst index: {round(sl, 3)}.")
+
     if plot:
         colors = ['royalblue', 'darkorange', 'seagreen', 'crimson', 'darkviolet']
         fig, axs = plt.subplots(1, 2, figsize=(14,6))
