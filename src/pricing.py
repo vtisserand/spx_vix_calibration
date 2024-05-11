@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy
+from typing import List, Union
 
 from src.models.base_model import BaseModel
 from src.config import NB_DAYS_PER_YEAR
@@ -74,3 +75,48 @@ def plot_spx_surface(model: BaseModel, S0: float=100., n_steps: int=NB_DAYS_PER_
     ax.set_ylabel("$\sigma_{BS}(T,k)$",fontsize=13)
     ax.legend()
     fig.show()
+
+def estimate_H(series: Union[List, np.ndarray], vol_series: Union[List, np.ndarray], qs: Union[List, np.ndarray]=[0.5,1,1.5,2,3], plot: bool=False,):
+    """
+    Estimates the Hurst index of a series using the m(\Delta, q) technique and regressingn against results.
+    """
+    rhs_ind=56
+    q_array = np.array(qs).reshape(-1,1)
+
+    mvts = []
+    for k in range(1,rhs_ind):
+        temp = np.average(np.abs(np.array(np.log(vol_series[k:])-np.log(vol_series[:-k])))**q_array,axis=1)
+        mvts.append(temp)
+    mvts = np.array(mvts)
+
+    slopes = []
+    inters = []
+    st_pos = 1
+    for i in range(len(q_array)):
+        s_temp,i_temp=scipy.stats.linregress(np.log(series[st_pos:rhs_ind]*252), np.log(mvts)[st_pos-1:,i])[:2]
+        slopes.append(s_temp)
+        inters.append(i_temp)
+    slopes = np.array(slopes)
+    inters = np.array(inters)
+
+    if plot:
+        colors = ['royalblue', 'darkorange', 'seagreen', 'crimson', 'darkviolet']
+        fig, axs = plt.subplots(1, 2, figsize=(14,6))
+
+        for i in range(len(q_array)):
+            axs[0].plot(np.log(series[st_pos:rhs_ind]*252),np.log(mvts)[st_pos-1:,i],marker="*",linestyle = 'None',markersize=3, color=colors[i])
+            axs[0].plot(np.log(series[st_pos:rhs_ind]*252),np.log(series[st_pos:rhs_ind]*252)*slopes[i]+inters[i], color=colors[i])
+        # fig.suptitle('Estimating',fontsize=16,y=1)
+        axs[0].set_xlabel(r"$\log \Delta$",size=12)
+        axs[0].set_ylabel(r"$\log m(\Delta, q)$",size=12)
+
+
+        sl,inc = scipy.stats.linregress(q_array[:,0], slopes)[:2]
+        axs[1].plot(q_array[:,0],slopes,'o', color='black', alpha=0.6)
+        axs[1].plot(q_array[:,0],q_array[:,0]*sl+inc,label=str(round(sl,3))+'× q')
+        #fig.suptitle('S&P500',fontsize=16,y=1)
+        axs[1].set_xlabel(r"$q$",size=12)
+        axs[1].set_ylabel(r"$\zeta_q$",size=12)
+        axs[1].legend()
+
+        fig.tight_layout()
