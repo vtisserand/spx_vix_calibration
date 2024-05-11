@@ -15,7 +15,7 @@ vec_find_vol_rat = np.vectorize(implied_volatility)
 from src.models.base_model import BaseModel
 from src.models.kernels import KernelFlavour
 from src.data import OptionChain, prices_to_ivs, ivs_to_prices
-from src.config import NB_DAYS_PER_YEAR
+from src.config import LOGGER, NB_DAYS_PER_YEAR
 
 
 class qHeston(BaseModel):
@@ -518,11 +518,14 @@ class qHeston(BaseModel):
                 print(f"market: {100*np.array(market_data)}")
                 print(f"model: {100*np.array(model_data).flatten()}")
 
-            error = np.sum(
-                np.square(
-                    100 * np.array(model_data).flatten() - 100 * np.array(market_data)
+            if is_vega_weighted:
+                error = np.sum(
+                    np.square(np.array(model_data).flatten() - np.array(market_data)) / (option_chain.get_vegas()/100)
                 )
-            )
+            else:
+                error = np.sum(
+                    np.square(100 * np.array(model_data).flatten() - 100 * np.array(market_data))
+                )
             errs.append(error)
 
             if verbose:
@@ -530,36 +533,11 @@ class qHeston(BaseModel):
 
             return error
 
-        def objective_price_vega_weighted(params: np.ndarray, *args) -> float:
-            print(f"params: {params}")
-            self.set_parameters(*params)
-            # Sample paths with a buffer for long maturities
-            prices, _ = self.generate_paths(
-                n_steps=n_steps, length=1.1 * max(option_chain.ttms), n_sims=n_sims
-            )
-
-            # Here we group the computations by slices (options accros different strikes for the same maturity).
-            slices = option_chain.group_by_slice()
-            model_prices = []
-            for ttm, slice_data in slices.items():
-                
-
-            print(f"market: {100*np.array(market_prices)}")
-            print(f"model: {100*np.array(model_prices).flatten()}")
-
-            error = np.sum(
-                np.square(np.array(model_prices).flatten() - np.array(market_prices)) / (option_chain.get_vegas()/100)
-            )
-            errs.append(error)
-            print(f"error: {error}")
-
-            return error
-
-
         init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1 / 52, -0.9, 0.5])
+        LOGGER.info(f"Initiating single surface calibration with parameters: {init_guess}.")
 
         res = minimize(
-            objective_price_vega_weighted, init_guess, args=(option_chain,), method="nelder-mead",
+            objective, init_guess, args=(option_chain,), method="nelder-mead",
         )
 
         return res.x, errs
