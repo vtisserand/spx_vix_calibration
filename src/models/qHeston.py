@@ -403,9 +403,15 @@ class qHeston(BaseModel):
         forward: float,
     ):
         prices_ttm = prices[int(ttm * n_steps)]
-        opt_prices = np.mean(np.maximum(strikes - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),0,),axis=0,)
+        opt_prices = np.mean(
+            np.maximum(
+                strikes
+                - np.repeat(prices_ttm.reshape((-1, 1)), repeats=len(strikes), axis=1),
+                0,
+            ),
+            axis=0,
+        )
         return opt_prices
-
 
     def get_iv(
         self,
@@ -463,19 +469,24 @@ class qHeston(BaseModel):
     def fit(
         self,
         option_chain: OptionChain,
-        is_vega_weighted: bool=False,
-        verbose: Optional[bool]=False,
+        is_vega_weighted: bool = False,
+        verbose: Optional[bool] = False,
     ):
         """
         Method to fit a qHeston model on a single surface. Default minimizes MSE on implied volatilities while if
-        is_vega_weighted is set to true minimizes MSE on prices, applying inverse vega weights such that the wings 
+        is_vega_weighted is set to true minimizes MSE on prices, applying inverse vega weights such that the wings
         still matter and the smile does not fade away.
         """
         n_steps = NB_DAYS_PER_YEAR  # Change to ensure less biased MC estimator
         n_sims = 100000
 
         if is_vega_weighted:
-            market_data = ivs_to_prices(ivs=option_chain.ivs, ttms=option_chain.ttms, strikes=option_chain.strikes, underlying=option_chain.underlying)
+            market_data = ivs_to_prices(
+                ivs=option_chain.ivs,
+                ttms=option_chain.ttms,
+                strikes=option_chain.strikes,
+                underlying=option_chain.underlying,
+            )
         else:
             market_data = option_chain.get_iv()
 
@@ -520,11 +531,15 @@ class qHeston(BaseModel):
 
             if is_vega_weighted:
                 error = np.sum(
-                    np.square(np.array(model_data).flatten() - np.array(market_data)) / (option_chain.get_vegas()/100)
+                    np.square(np.array(model_data).flatten() - np.array(market_data))
+                    / (option_chain.get_vegas() / 100)
                 )
             else:
                 error = np.sum(
-                    np.square(100 * np.array(model_data).flatten() - 100 * np.array(market_data))
+                    np.square(
+                        100 * np.array(model_data).flatten()
+                        - 100 * np.array(market_data)
+                    )
                 )
             errs.append(error)
 
@@ -534,60 +549,98 @@ class qHeston(BaseModel):
             return error
 
         init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1 / 52, -0.9, 0.5])
-        LOGGER.info(f"Initiating single surface calibration with parameters: {init_guess}.")
+        LOGGER.info(
+            f"Initiating single surface calibration with parameters: {init_guess}."
+        )
 
         res = minimize(
-            objective, init_guess, args=(option_chain,), method="nelder-mead",
+            objective,
+            init_guess,
+            args=(option_chain,),
+            method="nelder-mead",
         )
 
         return res.x, errs
-    
+
     def fit_joint(
         self,
-        option_chain: OptionChain,
+        spx_option_chain: OptionChain,
         vix_option_chain: OptionChain,
         vix_futures: np.ndarray,
-        is_vega_weighted: bool=False,
+        is_vega_weighted: bool = False,
+        verbose: Optional[bool] = False,
     ):
         """
         Method to fit a qHeston model on SPX and VIX surfaces (joint calibration problem).
         Default minimizes MSE on implied volatilities while if is_vega_weighted is set to true
-        minimizes MSE on prices, applying inverse vega weights such that the wings still matter 
+        minimizes MSE on prices, applying inverse vega weights such that the wings still matter
         and the smile does not fade away.
         """
         n_steps = NB_DAYS_PER_YEAR  # Change to ensure less biased MC estimator
         n_sims = 100000
 
-        spx_market_vols = option_chain.get_iv()
-        vix_market_vols = vix_option_chain.get_iv()
+        if is_vega_weighted:
+            spx_market_data = ivs_to_prices(
+                ivs=spx_option_chain.ivs,
+                ttms=spx_option_chain.ttms,
+                strikes=spx_option_chain.strikes,
+                underlying=spx_option_chain.underlying,
+            )
+            vix_market_data = ivs_to_prices(
+                ivs=vix_option_chain.ivs,
+                ttms=vix_option_chain.ttms,
+                strikes=vix_option_chain.strikes,
+                underlying=vix_option_chain.underlying,
+            )
+        else:
+            spx_market_data = spx_option_chain.get_iv()
+            vix_market_data = vix_option_chain.get_iv()
 
         def objective_joint(params: np.ndarray, args: np.ndarray) -> float:
             print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
-            prices, V = self.generate_paths(
-                n_steps=n_steps, length=1.2 * max(option_chain.ttms), n_sims=n_sims
+            S, V = self.generate_paths(
+                n_steps=n_steps, length=1.2 * max(max(spx_option_chain.ttms), max(vix_option_chain.ttms)), n_sims=n_sims
             )
 
             # SPX error
-            spx_slices = option_chain.group_by_slice()
-            spx_model_vols = []
-            for ttm, slice_data in spx_slices.items():
-                spx_model_vols.append(
-                    self.get_iv(
-                        prices,
-                        ttm,
-                        n_steps,
-                        slice_data["strikes"],
-                        slice_data["forwards"][0],
+            slices = spx_option_chain.group_by_slice()
+            spx_model_data = []
+            for ttm, slice_data in slices.items():
+                if is_vega_weighted:
+                    spx_model_data.append(
+                        self.get_prices(
+                            self,
+                            ttm,
+                            n_steps,
+                            slice_data["strikes"],
+                            slice_data["forwards"][0],
+                        )
+                    )
+                else:
+                    spx_model_data.append(
+                        self.get_iv(
+                            S,
+                            ttm,
+                            n_steps,
+                            slice_data["strikes"],
+                            slice_data["forwards"][0],
+                        )
+                    )
+
+            if is_vega_weighted:
+                spx_error = np.sum(
+                    np.square(np.array(spx_model_data).flatten() - np.array(spx_market_data))
+                    / (spx_option_chain.get_vegas() / 100)
+                )
+            else:
+                spx_error = np.sum(
+                    np.square(
+                        100 * np.array(spx_model_data).flatten()
+                        - 100 * np.array(spx_market_data)
                     )
                 )
-            spx_error = np.sum(
-                np.square(
-                    100 * np.array(spx_model_vols).flatten()
-                    - 100 * np.array(spx_market_vols)
-                )
-            )
 
             # VIX data
             vix_ttms = vix_option_chain.get_unique_ttms()
@@ -606,10 +659,22 @@ class qHeston(BaseModel):
 
             # VIX error
             vix_slices = vix_option_chain.group_by_slice()
-            vix_model_vols = []
+            vix_model_data = []
             for i, data in enumerate(vix_slices.items()):
                 ttm, slice_data = data[0], data[1]
-                vix_model_vols.append(
+
+                if is_vega_weighted:
+                    vix_model_data.append(
+                        self.get_prices(
+                            self,
+                            ttm,
+                            n_steps,
+                            slice_data["strikes"],
+                            slice_data["forwards"][0],
+                        )
+                    )
+                else:
+                    vix_model_data.append(
                     self.get_iv_vix(
                         prices_ttm=vix,
                         ttm=ttm,
@@ -617,27 +682,37 @@ class qHeston(BaseModel):
                         future=vix_fut_model[i],
                     )
                 )
-
-            vix_error = np.sum(
-                np.square(
-                    100 * np.array(vix_model_vols).flatten()
-                    - 100 * np.array(vix_market_vols)
+                    
+            if is_vega_weighted:
+                vix_error = np.sum(
+                    np.square(np.array(vix_model_data).flatten() - np.array(vix_market_data))
+                    / (vix_option_chain.get_vegas() / 100)
                 )
-            )
+            else:
+                vix_error = np.sum(
+                    np.square(
+                        100 * np.array(vix_model_data).flatten()
+                        - 100 * np.array(vix_market_data)
+                    )
+                )
 
-            print(
-                f"Errors: SPX {spx_error}, VIX futures {vix_fut_error}, VIX {vix_error}."
-            )
+            if verbose:
+                print(
+                    f"Errors: SPX {spx_error}, VIX futures {vix_fut_error}, VIX {vix_error}."
+                )
+
             return spx_error + vix_fut_error + vix_error
 
         init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1 / 52, -0.9, 0.5])
-
+        LOGGER.info(
+            f"Initiating joint calibration with parameters: {init_guess}."
+        )
 
         res = minimize(
-                objective_joint,
-                init_guess,
-                args=None,
-                method="nelder-mead",
-            )
-        
+            objective_joint,
+            init_guess,
+            args=None,
+            method="nelder-mead",
+        )
+
         return res.x
