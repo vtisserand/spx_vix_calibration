@@ -179,7 +179,8 @@ class OptionChain:
         """
         Returns an ordered list of the maturities for which we have data.
         """
-        return sorted(set(self.ttms), key=lambda x: self.ttms.index(x))
+        ttms = list(self.ttms)
+        return sorted(set(ttms), key=lambda x: ttms.index(x))
 
     def get_vegas(self):
         """
