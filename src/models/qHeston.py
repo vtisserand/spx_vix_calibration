@@ -558,6 +558,7 @@ class qHeston(BaseModel):
             init_guess,
             args=(option_chain,),
             method="nelder-mead",
+            options= {"disp":True,"maxiter":400},
         )
 
         return res.x, errs
@@ -611,7 +612,7 @@ class qHeston(BaseModel):
                 if is_vega_weighted:
                     spx_model_data.append(
                         self.get_prices(
-                            self,
+                            S,
                             ttm,
                             n_steps,
                             slice_data["strikes"],
@@ -666,7 +667,7 @@ class qHeston(BaseModel):
                 if is_vega_weighted:
                     vix_model_data.append(
                         self.get_prices(
-                            self,
+                            S,
                             ttm,
                             n_steps,
                             slice_data["strikes"],
@@ -713,6 +714,7 @@ class qHeston(BaseModel):
             init_guess,
             args=None,
             method="nelder-mead",
+            options= {"disp":True,"maxiter":400},
         )
 
         return res.x
