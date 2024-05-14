@@ -552,7 +552,7 @@ class qHeston(BaseModel):
 
             return error
 
-        init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1 / 52, -0.9, 0.5])
+        init_guess = np.array([0.36, 0.12, 0.0023, 0.05, 0.93, 1 / 52, 1, 0.037])
         LOGGER.info(
             f"Initiating single surface calibration with parameters: {init_guess}."
         )
@@ -709,7 +709,7 @@ class qHeston(BaseModel):
 
             return spx_error + vix_fut_error + vix_error
 
-        init_guess = np.array([ 0.10797529 , 0.13104748, -0.00340402 , 0.28709685  ,0.89233343 , 0.01639491,-0.97378029 , 0.51932223])
+        init_guess = np.array([0.36, 0.12, 0.0023, 0.05, 0.93, 1 / 52, 1, 0.037])
         LOGGER.info(
             f"Initiating joint calibration with parameters: {init_guess}."
         )
