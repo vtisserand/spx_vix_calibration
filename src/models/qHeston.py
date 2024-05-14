@@ -297,9 +297,24 @@ class qHeston(BaseModel):
                 )
                 raise ValueError("Invalid kernel type provided.")
 
+            # Some approximations error lead to small negative values potentially in V (e.g. e-7)
+            V[: j + 1][V[: j + 1] < 0] = 0
+
             Z_temp = self.fvc + np.sum(
                 std_ji.reshape(-1, 1) * w1[: j + 1] * np.sqrt(V[: j + 1]), axis=0
             )
+
+            if np.isnan(Z_temp).any():
+                # Find the indices of the NaNs
+                nan_indices = np.where(np.isnan(Z_temp))
+                print("Indices of NaNs:", nan_indices)
+                subarray = V[: j + 1]
+
+                # Check if there are any negative values in the subarray
+                if (subarray < 0).any():
+                    print(f"There are negative values in V[: j + 1]: {subarray[subarray < 0]}")
+
+
             V_temp = self.a * ((Z_temp - self.b) ** 2) + self.c
             Z = np.append(Z, Z_temp.reshape(1, -1), axis=0)
             V = np.append(V, V_temp.reshape(1, -1), axis=0)
@@ -598,7 +613,8 @@ class qHeston(BaseModel):
             vix_market_data = vix_option_chain.get_iv()
 
         def objective_joint(params: np.ndarray, args: np.ndarray) -> float:
-            print(f"params: {params}")
+            if verbose:
+                print(f"params: {params}")
             self.set_parameters(*params)
             # Sample paths with a buffer for long maturities
             S, V = self.generate_paths(
@@ -654,7 +670,7 @@ class qHeston(BaseModel):
 
             # VIX futures error
             vix_fut_model = vix.mean(axis=1)
-            vix_fut_error = 10 * np.sum(
+            vix_fut_error = np.sum(
                 np.square(np.array(vix_fut_model) - np.array(vix_futures))
             )
 
@@ -686,7 +702,7 @@ class qHeston(BaseModel):
                     
             if is_vega_weighted:
                 vix_error = np.sum(
-                    np.square(np.array(vix_model_data).flatten() - np.array(vix_market_data))
+                    np.square(100 * np.array(vix_model_data).flatten() - 100 * np.array(vix_market_data))
                     / (vix_option_chain.get_vegas() / 100)
                 )
             else:
@@ -704,7 +720,7 @@ class qHeston(BaseModel):
 
             return spx_error + vix_fut_error + vix_error
 
-        init_guess = np.array([0.1, 0.1, 0.05, 0.25, 0.7, 1 / 52, -0.9, 0.5])
+        init_guess = np.array([ 0.10797529 , 0.13104748, -0.00340402 , 0.28709685  ,0.89233343 , 0.01639491,-0.97378029 , 0.51932223])
         LOGGER.info(
             f"Initiating joint calibration with parameters: {init_guess}."
         )
