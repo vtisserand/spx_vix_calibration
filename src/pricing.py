@@ -41,19 +41,19 @@ def plot_spx_surface(model: BaseModel, S0: float=100., n_steps: int=NB_DAYS_PER_
     # Log-moneyness ranges
     def spx_range_rule(ttm):
         if ttm<=2/52:
-            lm_range = [-0.2,0.05]
+            lm_range = [-0.2,0.1]
         elif ttm <=1/12:
-            lm_range = [-0.3,0.07]
+            lm_range = [-0.25,0.12]
         elif ttm <= 2/12:
-            lm_range = [-0.4,0.1]
+            lm_range = [-0.3,0.15]
         elif ttm <= 3/12:
-            lm_range = [-0.5,0.15]
+            lm_range = [-0.35,0.15]
         elif ttm <= 6/12:
-            lm_range = [-0.6,0.15]
+            lm_range = [-0.35,0.2]
         elif ttm <= 12/12:
-            lm_range = [-0.7,0.2]
+            lm_range = [-0.4,0.2]
         else:
-            lm_range = [-0.8,0.3]
+            lm_range = [-0.4,0.3]
         return lm_range
     
     prices, _ = model.generate_paths(n_steps=NB_DAYS_PER_YEAR, length=1.1*max(ttm_array), n_sims=300000)
@@ -75,6 +75,44 @@ def plot_spx_surface(model: BaseModel, S0: float=100., n_steps: int=NB_DAYS_PER_
     ax.set_ylabel("$\sigma_{BS}(T,k)$",fontsize=13)
     ax.legend()
     fig.show()
+
+def plot_vix_surface(model: BaseModel, S0: float=100., n_steps: int=NB_DAYS_PER_YEAR):
+    ttm_array = np.array([1/52,2/52,1/12,2/12,3/12,6/12,1])
+    ttm_array_name = np.array(['1w','2w','1m','2m','3m','6m','1y'])
+
+    # Strikes range rule
+    def vix_range_rule(ttm):
+        return [12,50]
+    
+    S, V = model.generate_paths(n_steps=NB_DAYS_PER_YEAR, length=1.2*max(ttm_array), n_sims=300000)
+    # VIX data
+    tt = model.grid
+    delta = 1 / 12  # VIX sees 1 month further
+    taus = np.concatenate([[1e-5], tt[1 : int(n_steps * delta)]])
+    vix = model.compute_vix(
+        t=ttm_array, tau=taus, delta=delta, V=V, n_steps=n_steps, n_sims=300000
+    ) # Array of shape (n_sims, n_vix_maturities)
+
+    ivs = []
+    ks = []
+    for (i, ttm) in enumerate(ttm_array):
+        vix_prices=vix[i]
+
+        k_lu = vix_range_rule(ttm)
+        strike_array = np.linspace(k_lu[0], k_lu[1], 50)
+        smile = model.get_iv_vix(prices_ttm=vix_prices, ttm=ttm, strikes=strike_array, future=np.mean(vix_prices))
+        ivs.append(smile)
+        ks.append(strike_array)
+
+    fig, ax = plt.subplots()
+    for i in range(len(ttm_array)):
+        ax.plot(ks[i], ivs[i], label = ttm_array_name[i])
+    ax.set_xlabel("Strike",fontsize=13)
+    ax.set_ylabel("$\sigma_{BS}(T,k)$",fontsize=13)
+    ax.legend()
+    fig.show()
+
+
 
 def estimate_H(series: Union[List, np.ndarray], vol_series: Union[List, np.ndarray], qs: Union[List, np.ndarray]=[0.5,1,1.5,2,3], plot: bool=False,):
     """
