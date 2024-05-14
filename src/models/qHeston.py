@@ -304,17 +304,6 @@ class qHeston(BaseModel):
                 std_ji.reshape(-1, 1) * w1[: j + 1] * np.sqrt(V[: j + 1]), axis=0
             )
 
-            if np.isnan(Z_temp).any():
-                # Find the indices of the NaNs
-                nan_indices = np.where(np.isnan(Z_temp))
-                print("Indices of NaNs:", nan_indices)
-                subarray = V[: j + 1]
-
-                # Check if there are any negative values in the subarray
-                if (subarray < 0).any():
-                    print(f"There are negative values in V[: j + 1]: {subarray[subarray < 0]}")
-
-
             V_temp = self.a * ((Z_temp - self.b) ** 2) + self.c
             Z = np.append(Z, Z_temp.reshape(1, -1), axis=0)
             V = np.append(V, V_temp.reshape(1, -1), axis=0)
