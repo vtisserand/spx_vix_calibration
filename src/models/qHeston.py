@@ -552,7 +552,7 @@ class qHeston(BaseModel):
 
             return error
 
-        init_guess = np.array([0.36, 0.12, 0.0023, 0.05, 0.93, 1 / 52, 1, 0.037])
+        init_guess = np.array([0.3, 0.1, 0.05, 0.25, 0.7, 1 / 52, -0.9, 0.5])
         LOGGER.info(
             f"Initiating single surface calibration with parameters: {init_guess}."
         )
@@ -682,7 +682,7 @@ class qHeston(BaseModel):
                 else:
                     vix_model_data.append(
                     self.get_iv_vix(
-                        prices_ttm=vix,
+                        prices_ttm=vix[i],
                         ttm=ttm,
                         strikes=slice_data["strikes"],
                         future=vix_fut_model[i],
@@ -709,16 +709,30 @@ class qHeston(BaseModel):
 
             return spx_error + vix_fut_error + vix_error
 
-        init_guess = np.array([0.36, 0.12, 0.0023, 0.05, 0.93, 1 / 52, 1, 0.037])
+        init_guess = np.array([0.3, 0.1, 0.05, 0.25, 0.7, 1 / 52, -1.0, 0.5])
         LOGGER.info(
             f"Initiating joint calibration with parameters: {init_guess}."
         )
+
+        def inverse_corr(params):
+            # Set rho to -1.0
+            return params[6] - (-1.0)
+
+        def leverage_effect(params):
+            # Look for Z_t - b > 0 for leverage effect
+            return params[7] - params[1]
+
+        constraints = [
+            {'type': 'eq', 'fun': inverse_corr},
+            {'type': 'ineq', 'fun': leverage_effect}
+        ]
 
         res = minimize(
             objective_joint,
             init_guess,
             args=None,
-            method="nelder-mead",
+            method="SLSQP",
+            constraints=constraints,
             options= {"disp":True,"maxiter":400},
         )
 
